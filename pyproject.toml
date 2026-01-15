@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maniskill-myws"
+version = "0.1.0"
+description = "Custom ManiSkill tasks + imitation learning workspace (tasks, data collection, training, visualization)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "bitqjy" }]
+
+# Keep core deps light; in local-source workflows ManiSkill/SAPIEN/PyTorch are installed separately (conda / source).
+dependencies = [
+  "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+runtime = [
+  "gymnasium>=0.29",
+  "h5py>=3.9",
+]
+dev = [
+  "pytest>=7.4",
+  "ruff>=0.3",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+
