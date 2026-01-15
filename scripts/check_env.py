@@ -7,6 +7,8 @@ Example:
 """
 
 import argparse
+import sys
+from pathlib import Path
 
 
 def main():
@@ -16,6 +18,10 @@ def main():
     parser.add_argument("--reward-mode", type=str, default="none")
     parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
     args = parser.parse_args()
+
+    # Allow running without `pip install -e .` by adding repo/src to PYTHONPATH.
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root / "src"))
 
     import gymnasium as gym
 

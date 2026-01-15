@@ -40,6 +40,12 @@ obs, info = env.reset(seed=0)
 python scripts/check_env.py --env-id TurnGlobeValve-v1
 ```
 
+- **Run ManiSkill's random-action demo with your custom task (supports `--render-mode human`)**:
+
+```bash
+python scripts/ms_demo_random_action.py -e TurnGlobeValve-v1 --render-mode human
+```
+
 - **Record random rollouts (debugging the imitation pipeline)**:
 
 ```bash

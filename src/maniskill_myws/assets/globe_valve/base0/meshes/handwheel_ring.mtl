@@ -1,0 +1,9 @@
+# Material for handwheel ring
+newmtl ring_material
+Ka 0.8 0.2 0.2
+Kd 0.8 0.2 0.2
+Ks 0.5 0.5 0.5
+Ns 32.0
+d 1.0
+illum 2
+

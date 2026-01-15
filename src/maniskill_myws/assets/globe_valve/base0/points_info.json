@@ -1,0 +1,133 @@
+{
+    "contact_points": [
+        {
+            "id": 0,
+            "name": "spoke_1",
+            "position": [0.10, 0.0, 0.0],
+            "angle_deg": 0,
+                "link": "handwheel",
+            "description": "Spoke 1 at 0 deg (right direction) - radial spoke grip point on ring"
+        },
+        {
+            "id": 1,
+            "name": "spoke_2",
+            "position": [-0.05, 0.0866, 0.0],
+            "angle_deg": 120,
+                "link": "handwheel",
+            "description": "Spoke 2 at 120 deg (upper-left direction) - radial spoke grip point on ring"
+        },
+        {
+            "id": 2,
+            "name": "spoke_3",
+            "position": [-0.05, -0.0866, 0.0],
+            "angle_deg": 240,
+                "link": "handwheel",
+            "description": "Spoke 3 at 240 deg (lower-left direction) - radial spoke grip point on ring"
+    },
+    {
+      "id": 3,
+      "name": "ring_0",
+      "position": [0.1050, 0.0000, 0.0],
+      "angle_deg": 0,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 0 deg"
+    },
+    {
+      "id": 4,
+      "name": "ring_45",
+      "position": [0.0742, 0.0742, 0.0],
+      "angle_deg": 45,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 45 deg"
+    },
+    {
+      "id": 5,
+      "name": "ring_90",
+      "position": [0.0000, 0.1050, 0.0],
+      "angle_deg": 90,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 90 deg"
+    },
+    {
+      "id": 6,
+      "name": "ring_135",
+      "position": [-0.0742, 0.0742, 0.0],
+      "angle_deg": 135,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 135 deg"
+    },
+    {
+      "id": 7,
+      "name": "ring_180",
+      "position": [-0.1050, 0.0000, 0.0],
+      "angle_deg": 180,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 180 deg"
+    },
+    {
+      "id": 8,
+      "name": "ring_225",
+      "position": [-0.0742, -0.0742, 0.0],
+      "angle_deg": 225,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 225 deg"
+    },
+    {
+      "id": 9,
+      "name": "ring_270",
+      "position": [0.0000, -0.1050, 0.0],
+      "angle_deg": 270,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 270 deg"
+    },
+    {
+      "id": 10,
+      "name": "ring_315",
+      "position": [0.0742, -0.0742, 0.0],
+      "angle_deg": 315,
+      "link": "handwheel",
+      "description": "Outer ring grasp point at 315 deg"
+        }
+    ],
+    "grasp_strategy": "Grip any of the three radial spokes for rotation around Z-axis. Spokes are evenly distributed at 120 deg intervals.",
+    "rotation_axis": "Z (vertical, perpendicular to handwheel plane)",
+    "rotation_type": "continuous",
+    "rotation_range": "unlimited (continuous revolute joint)",
+    "handwheel_design": {
+        "type": "closed_ring_with_spokes",
+        "outer_ring": {
+            "major_radius": 0.10,
+            "minor_radius": 0.01,
+            "inner_edge": 0.09,
+            "outer_edge": 0.11,
+            "mesh_file": "meshes/handwheel_ring.obj",
+            "description": "Complete closed torus ring mesh"
+        },
+        "spokes": {
+            "count": 3,
+            "distribution": "120 deg uniform radial",
+            "angles_deg": [0, 120, 240],
+            "radius": 0.008,
+            "length": 0.075,
+            "center_position": 0.0525,
+            "description": "Spokes connect hub edge (r=0.015) to ring inner edge (r=0.09)"
+        },
+        "hub": {
+            "radius": 0.015,
+            "height": 0.02,
+            "description": "Center hub rigidly connected to valve stem"
+        },
+        "geometry_validation": {
+            "hub_outer_radius": 0.015,
+            "spoke_start": 0.015,
+            "spoke_length": 0.075,
+            "spoke_end": 0.09,
+            "ring_inner_radius": 0.09,
+            "ring_major_radius": 0.10,
+            "ring_outer_radius": 0.11,
+            "clearance": 0.0,
+            "status": "OK - Spokes fit perfectly within ring (end at inner edge)"
+        }
+    }
+}
+

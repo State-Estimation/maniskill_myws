@@ -20,6 +20,7 @@ dependencies = [
 runtime = [
   "gymnasium>=0.29",
   "h5py>=3.9",
+  "mani_skill",
 ]
 dev = [
   "pytest>=7.4",
@@ -31,6 +32,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+maniskill_myws = ["assets/**/*"]
 
 [tool.ruff]
 line-length = 100

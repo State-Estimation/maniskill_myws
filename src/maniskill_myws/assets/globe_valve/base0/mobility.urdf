@@ -1,0 +1,202 @@
+<?xml version="1.0" ?>
+<robot name="globe_valve">
+	<!-- Base link (reference frame) -->
+	<link name="base"/>
+	
+	<!-- Valve body (fixed part) - 阀门本体 -->
+	<link name="valve_body">
+		<!-- Main valve body -->
+		<visual name="body_main">
+			<origin xyz="0 0 0.06"/>
+			<geometry>
+				<cylinder radius="0.04" length="0.12"/>
+			</geometry>
+			<material name="valve_body_material">
+				<color rgba="0.5 0.5 0.5 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="0 0 0.06"/>
+			<geometry>
+				<cylinder radius="0.04" length="0.12"/>
+			</geometry>
+		</collision>
+		
+		<!-- Inlet pipe (left) -->
+		<visual name="inlet_pipe">
+			<origin xyz="-0.05 0 0.03" rpy="0 1.5708 0"/>
+			<geometry>
+				<cylinder radius="0.02" length="0.06"/>
+			</geometry>
+			<material name="pipe_material">
+				<color rgba="0.4 0.4 0.4 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="-0.05 0 0.03" rpy="0 1.5708 0"/>
+			<geometry>
+				<cylinder radius="0.02" length="0.06"/>
+			</geometry>
+		</collision>
+		
+		<!-- Outlet pipe (right) -->
+		<visual name="outlet_pipe">
+			<origin xyz="0.05 0 0.03" rpy="0 1.5708 0"/>
+			<geometry>
+				<cylinder radius="0.02" length="0.06"/>
+			</geometry>
+			<material name="pipe_material">
+				<color rgba="0.4 0.4 0.4 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="0.05 0 0.03" rpy="0 1.5708 0"/>
+			<geometry>
+				<cylinder radius="0.02" length="0.06"/>
+			</geometry>
+		</collision>
+		
+		<!-- Valve stem housing -->
+		<visual name="stem_housing">
+			<origin xyz="0 0 0.13"/>
+			<geometry>
+				<cylinder radius="0.015" length="0.02"/>
+			</geometry>
+			<material name="stem_material">
+				<color rgba="0.6 0.6 0.6 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="0 0 0.13"/>
+			<geometry>
+				<cylinder radius="0.015" length="0.02"/>
+			</geometry>
+		</collision>
+	</link>
+	
+	<!-- Handwheel (rotatable part) - 可旋转的手轮 -->
+	<link name="handwheel">
+		<!-- Stem (valve spindle) - 阀杆 -->
+		<visual name="stem">
+			<origin xyz="0 0 -0.03"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.06"/>
+			</geometry>
+			<material name="stem_material">
+				<color rgba="0.7 0.7 0.7 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="0 0 -0.03"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.06"/>
+			</geometry>
+		</collision>
+		
+		<!-- Outer rim (完整闭合圆环) - 使用mesh文件 -->
+		<visual name="handwheel_ring">
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_ring.obj"/>
+			</geometry>
+			<material name="rim_material">
+				<color rgba="0.8 0.2 0.2 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_ring.obj"/>
+			</geometry>
+		</collision>
+		
+		<!-- Three spokes evenly distributed at 120 deg intervals -->
+		<!-- Extend from hub edge (r=0.015) to ring inner edge (r=0.09) -->
+		<!-- Spoke length = 0.09 - 0.015 = 0.075m, center position = (0.015+0.09)/2 = 0.0525m -->
+		<!-- Spoke 1: 0 deg direction (right, +X) -->
+		<visual name="spoke_1">
+			<origin xyz="0.0525 0 0" rpy="0 1.5708 0"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.075"/>
+			</geometry>
+			<material name="spoke_material">
+				<color rgba="0.7 0.15 0.15 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="0.0525 0 0" rpy="0 1.5708 0"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.075"/>
+			</geometry>
+		</collision>
+		
+		<!-- Spoke 2: 120 deg direction (upper-left) -->
+		<visual name="spoke_2">
+			<origin xyz="-0.02625 0.04546 0" rpy="0 1.5708 2.0944"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.075"/>
+			</geometry>
+			<material name="spoke_material">
+				<color rgba="0.7 0.15 0.15 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="-0.02625 0.04546 0" rpy="0 1.5708 2.0944"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.075"/>
+			</geometry>
+		</collision>
+		
+		<!-- Spoke 3: 240 deg direction (lower-left) -->
+		<visual name="spoke_3">
+			<origin xyz="-0.02625 -0.04546 0" rpy="0 1.5708 4.1888"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.075"/>
+			</geometry>
+			<material name="spoke_material">
+				<color rgba="0.7 0.15 0.15 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="-0.02625 -0.04546 0" rpy="0 1.5708 4.1888"/>
+			<geometry>
+				<cylinder radius="0.008" length="0.075"/>
+			</geometry>
+		</collision>
+		
+		<!-- Center hub (中心轮毂，与阀杆刚性连接) -->
+		<visual name="hub">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<cylinder radius="0.015" length="0.02"/>
+			</geometry>
+			<material name="hub_material">
+				<color rgba="0.6 0.1 0.1 1.0"/>
+			</material>
+		</visual>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<cylinder radius="0.015" length="0.02"/>
+			</geometry>
+		</collision>
+	</link>
+	
+	<!-- Joint: Handwheel rotation (continuous) -->
+	<joint name="handwheel_joint" type="continuous">
+		<origin xyz="0 0 0.14" rpy="0 0 0"/>
+		<axis xyz="0 0 1"/>
+		<parent link="valve_body"/>
+		<child link="handwheel"/>
+		<!-- Continuous joint - no limits, can rotate indefinitely -->
+		<dynamics damping="0.01" friction="0.01"/>
+	</joint>
+	
+	<!-- Joint: Valve body fixed to base -->
+	<joint name="valve_base_joint" type="fixed">
+		<origin xyz="0 0 0" rpy="0 0 0"/>
+		<parent link="base"/>
+		<child link="valve_body"/>
+	</joint>
+</robot>
+

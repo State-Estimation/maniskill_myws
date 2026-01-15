@@ -10,6 +10,7 @@ Example:
 
 import argparse
 from pathlib import Path
+import sys
 
 import numpy as np
 
@@ -32,6 +33,10 @@ def main():
     parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
     parser.add_argument("--save-video", action="store_true")
     args = parser.parse_args()
+
+    # Allow running without `pip install -e .` by adding repo/src to PYTHONPATH.
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root / "src"))
 
     import gymnasium as gym
     from mani_skill.utils.wrappers.record import RecordEpisode

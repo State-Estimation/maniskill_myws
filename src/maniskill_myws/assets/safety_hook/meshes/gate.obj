@@ -1,0 +1,59 @@
+# Low-poly screw-gate approximation for carabiner.
+# Units: meters. Local frame: origin at hinge (top of gate).
+# Gate extends downward in -Z. Y is out-of-plane thickness.
+
+o gate
+
+# -------------------------
+# Box A: gate rod
+# center (0, 0, -0.030), size (0.008, 0.010, 0.060)
+v -0.004 -0.005  0.000
+v  0.004 -0.005  0.000
+v  0.004  0.005  0.000
+v -0.004  0.005  0.000
+v -0.004 -0.005 -0.060
+v  0.004 -0.005 -0.060
+v  0.004  0.005 -0.060
+v -0.004  0.005 -0.060
+
+# -------------------------
+# Box B: screw sleeve (locking collar) near the top
+# center (0, 0, -0.012), size (0.014, 0.014, 0.022)
+v -0.007 -0.007 -0.001
+v  0.007 -0.007 -0.001
+v  0.007  0.007 -0.001
+v -0.007  0.007 -0.001
+v -0.007 -0.007 -0.023
+v  0.007 -0.007 -0.023
+v  0.007  0.007 -0.023
+v -0.007  0.007 -0.023
+
+# Faces for Box A (verts 1-8)
+f 1 2 3
+f 1 3 4
+f 5 7 6
+f 5 8 7
+f 1 6 2
+f 1 5 6
+f 2 7 3
+f 2 6 7
+f 3 8 4
+f 3 7 8
+f 4 5 1
+f 4 8 5
+
+# Faces for Box B (verts 9-16)
+f 9 10 11
+f 9 11 12
+f 13 15 14
+f 13 16 15
+f 9 14 10
+f 9 13 14
+f 10 15 11
+f 10 14 15
+f 11 16 12
+f 11 15 16
+f 12 13 9
+f 12 16 13
+
+

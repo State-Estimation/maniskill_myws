@@ -1,10 +1,10 @@
 from typing import Any
 
+import importlib.resources as importlib_resources
 import numpy as np
 import sapien
 import torch
 
-from mani_skill import PACKAGE_ASSET_DIR
 from mani_skill.agents.robots import Panda
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.utils import randomization
@@ -34,8 +34,6 @@ class TurnGlobeValveEnv(BaseEnv):
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
     SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
     agent: Panda
-
-    VALVE_URDF = PACKAGE_ASSET_DIR / "custom_objects/globe_valve/base0/mobility.urdf"
 
     def __init__(
         self,
@@ -82,12 +80,19 @@ class TurnGlobeValveEnv(BaseEnv):
 
         loader = self.scene.create_urdf_loader()
         loader.fix_root_link = True
-        self.valve: Articulation = loader.load(
-            str(self.VALVE_URDF),
-            name="globe_valve",
-            scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
-            package_dir=str(self.VALVE_URDF.parent),
+
+        # Use workspace-shipped asset (works even when ManiSkill is installed via pip).
+        base0_dir = importlib_resources.files("maniskill_myws").joinpath(
+            "assets/globe_valve/base0"
         )
+        with importlib_resources.as_file(base0_dir) as base0_path:
+            urdf_path = base0_path / "mobility.urdf"
+            self.valve: Articulation = loader.load(
+                str(urdf_path),
+                name="globe_valve",
+                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
+                package_dir=str(base0_path),
+            )
         self.handwheel_joint = self.valve.active_joints_map["handwheel_joint"]
 
         self._handwheel_qpos_prev = torch.zeros(self.num_envs, device=self.device)
