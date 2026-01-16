@@ -46,6 +46,20 @@ python scripts/check_env.py --env-id TurnGlobeValve-v1
 python scripts/ms_demo_random_action.py -e TurnGlobeValve-v1 --render-mode human
 ```
 
+- **Run any ManiSkill demo module (generic wrapper)**:
+
+```bash
+python scripts/run_maniskill_demo.py mani_skill.examples.demo_random_action -e TurnGlobeValve-v1 --render-mode human
+```
+
+- **Manual-control demos 注意事项**:
+  `mani_skill.examples.demo_manual_control(_continuous)` 脚本内部会执行 `env.render().cpu().numpy()`，因此它们期望 `render_mode` 返回图像（例如 `sensors`/`rgb_array`），**不兼容 `--render-mode human`**。
+  如果你想用 SAPIEN Viewer，请保持 `--render-mode sensors`，并额外加 `--enable-sapien-viewer`：
+
+```bash
+python scripts/run_maniskill_demo.py mani_skill.examples.demo_manual_control_continuous -e TurnGlobeValve-v1 --render-mode sensors --enable-sapien-viewer
+```
+
 - **Record random rollouts (debugging the imitation pipeline)**:
 
 ```bash
