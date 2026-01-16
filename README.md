@@ -74,12 +74,4 @@ Trajectory output is ManiSkill's native `.h5 + .json` format.
 
 ## Imitation learning (Behavior Cloning baseline)
 
-Once you have a `.h5` trajectory file (recorded with `RecordEpisode`), you can train a minimal BC policy:
-
-```bash
-python scripts/bc_train.py --h5 path/to/trajectory.h5 --out outputs/bc_ckpt.pt
-```
-
-Notes:
-- This BC script expects trajectories to include `obs` and `actions` in the `.h5`.
-- It flattens nested observation/action dicts by concatenating leaf datasets.
+WIP
