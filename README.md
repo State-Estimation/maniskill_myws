@@ -8,7 +8,7 @@ Custom ManiSkill tasks + imitation learning workspace (local-source development)
 - **Install this workspace**:
 
 ```bash
-cd /home/sisyphus/Projects/maniskill_myws
+cd /your/path/to/maniskill_myws
 pip install -e .[runtime,dev]
 ```
 
@@ -31,6 +31,10 @@ maniskill_myws.register()
 env = gym.make("TurnGlobeValve-v1", obs_mode="state", reward_mode="none", render_mode=None)
 obs, info = env.reset(seed=0)
 ```
+
+Available env IDs (in this repo):
+- `TurnGlobeValve-v1`
+- `OpenSafeDoor-v1` (asset `101593`, knob rotate > 90deg then door open > 60deg)
 
 ## Scripts
 
