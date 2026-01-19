@@ -72,6 +72,33 @@ python scripts/record_random.py --env-id TurnGlobeValve-v1 --out-dir data/demos/
 
 Trajectory output is ManiSkill's native `.h5 + .json` format.
 
+## openpi (π0/π0.5) integration
+
+This workspace can be used to train / run openpi VLA policies on custom ManiSkill tasks by:
+- converting RecordEpisode trajectories (`.h5`) to a LeRobot dataset
+- running openpi fine-tuning with existing configs (LIBERO-style)
+- rolling out the trained policy in ManiSkill
+
+See: `docs/openpi_integration.md`
+
+### Minimal “GraspVLA-style” two-process workflow (server + ManiSkill client)
+
+1) **Start π0 server** (separate env/machine with openpi installed):
+
+```bash
+python scripts/pi0/serve.py \
+  --config pi05_libero \
+  --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
+  --port 8000
+```
+
+2) **Run ManiSkill visualization client** (your `conda activate mani_skill` env):
+
+```bash
+pip install -e /home/sisyphus/Projects/openpi/packages/openpi-client
+python scripts/pi0/run_pi0_remote.py --server ws://127.0.0.1:8000 --env-id TurnGlobeValve-v1 --save-images
+```
+
 ## Imitation learning (Behavior Cloning baseline)
 
 WIP
