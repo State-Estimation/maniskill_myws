@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
 from .keypath import get_by_path
-
-
-_WARNED_MISSING_WRIST = False
 
 
 def _as_numpy(x: Any) -> np.ndarray:
@@ -75,27 +72,20 @@ class ObsAdapter:
 
     image_key: str
     wrist_image_key: str
-    state_key: str
+    state_keys: Sequence[str]
     prompt: str
 
     def __call__(self, obs: dict) -> dict:
         base_img = _to_uint8_hwc(get_by_path(obs, self.image_key))
-        try:
-            wrist_img = _to_uint8_hwc(get_by_path(obs, self.wrist_image_key))
-        except KeyError:
-            # Many ManiSkill envs only expose a single RGB camera in obs_mode=rgb.
-            # openpi's LIBERO-style policy expects both base + wrist images, so we fall back to reusing base.
-            global _WARNED_MISSING_WRIST
-            if not _WARNED_MISSING_WRIST:
-                _WARNED_MISSING_WRIST = True
-                print(
-                    f"[openpi_bridge] wrist camera key '{self.wrist_image_key}' not found; "
-                    f"falling back to '{self.image_key}'. You can also pass --wrist-image-key explicitly."
-                )
-            wrist_img = base_img
-        state_arr = _as_numpy(get_by_path(obs, self.state_key))
-        state_arr = _squeeze_leading_batch(state_arr)
-        state = state_arr.astype(np.float32, copy=False).reshape(-1)
+        wrist_img = _to_uint8_hwc(get_by_path(obs, self.wrist_image_key))
+        parts: list[np.ndarray] = []
+        for key in self.state_keys:
+            state_arr = _as_numpy(get_by_path(obs, key))
+            state_arr = _squeeze_leading_batch(state_arr)
+            parts.append(state_arr.astype(np.float32, copy=False).reshape(-1))
+        if not parts:
+            raise ValueError("ObsAdapter.state_keys is empty")
+        state = np.concatenate(parts, axis=0)
         return {
             "observation/image": base_img,
             "observation/wrist_image": wrist_img,

@@ -35,6 +35,7 @@ obs, info = env.reset(seed=0)
 Available env IDs (in this repo):
 - `TurnGlobeValve-v1`
 - `OpenSafeDoor-v1` (asset `101593`, knob rotate > 90deg then door open > 60deg)
+- `StackCube-v2` (standardized sensors for VLA data collection)
 
 ## Scripts
 
@@ -80,8 +81,9 @@ This workspace can be used to train / run openpi VLA policies on custom ManiSkil
 - rolling out the trained policy in ManiSkill
 
 See: `docs/openpi_integration.md`
+See also: `docs/maniskill_dataset_standard.md`
 
-### Minimal “GraspVLA-style” two-process workflow (server + ManiSkill client)
+### Minimal two-process workflow (server + ManiSkill client)
 
 1) **Start π0 server** (separate env/machine with openpi installed):
 

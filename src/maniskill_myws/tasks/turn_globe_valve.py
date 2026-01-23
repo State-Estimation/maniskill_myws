@@ -15,6 +15,7 @@ from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
 from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import SimConfig
+from maniskill_myws.task_prompts import TASK_PROMPTS
 
 
 @register_env("TurnGlobeValve-v1", max_episode_steps=200)
@@ -34,6 +35,7 @@ class TurnGlobeValveEnv(BaseEnv):
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
     SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
     agent: Panda
+    DEFAULT_TASK_PROMPT = TASK_PROMPTS["TurnGlobeValve-v1"]
 
     def __init__(
         self,

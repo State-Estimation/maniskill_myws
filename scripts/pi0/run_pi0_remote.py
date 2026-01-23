@@ -87,8 +87,19 @@ def main() -> None:
     # Where to read images/state from the ManiSkill obs dict (keypaths from inspect_obs output).
     p.add_argument("--image-key", type=str, default="sensor_data/base_camera/rgb")
     p.add_argument("--wrist-image-key", type=str, default="sensor_data/hand_camera/rgb")
-    p.add_argument("--state-key", type=str, default="extra/tcp_pose")
-    p.add_argument("--prompt", type=str, default="turn the globe valve")
+    p.add_argument(
+        "--state-keys",
+        type=str,
+        nargs="+",
+        default=None,
+        help="One or more obs keypaths to concat into a 1D state vector.",
+    )
+    p.add_argument(
+        "--prompt",
+        type=str,
+        default=None,
+        help="If unset, uses env.DEFAULT_TASK_PROMPT.",
+    )
 
     # Logging / outputs
     p.add_argument("--output-root", type=str, default="outputs/pi0")
@@ -108,7 +119,6 @@ def main() -> None:
         action="store_true",
         help="Save trajectory.npz (actions/tcp/prompt/env_id). Off by default to keep rollout side-effect free.",
     )
-
     args = p.parse_args()
 
     # Allow running without `pip install -e .` by adding repo/src to PYTHONPATH.
@@ -147,11 +157,26 @@ def main() -> None:
     )
     obs, info = env.reset(seed=args.seed)
 
+    prompt = args.prompt
+    if prompt is None:
+        if hasattr(env.unwrapped, "DEFAULT_TASK_PROMPT"):
+            prompt = env.unwrapped.DEFAULT_TASK_PROMPT
+        else:
+            raise SystemExit(
+                f"Env '{args.env_id}' does not define DEFAULT_TASK_PROMPT; "
+                "please pass --prompt explicitly."
+            )
+
+    if args.state_keys is not None and len(args.state_keys) > 0:
+        state_keys = args.state_keys
+    else:
+        state_keys = ["extra/tcp_pose"]
+
     adapter = ObsAdapter(
         image_key=args.image_key,
         wrist_image_key=args.wrist_image_key,
-        state_key=args.state_key,
-        prompt=args.prompt,
+        state_keys=state_keys,
+        prompt=prompt,
     )
     policy = RemoteWebsocketChunkPolicy(server=args.server, obs_adapter=adapter, act_dim=7, resize=224)
     policy.reset()
@@ -192,7 +217,7 @@ def main() -> None:
 
             # Record tcp pose if present
             try:
-                tcp_arr = _as_numpy(get_by_path(obs, args.state_key))
+                tcp_arr = _as_numpy(get_by_path(obs, state_keys[0]))
                 tcp_arr = _squeeze_leading_batch(tcp_arr)
                 tcp = np.asarray(tcp_arr).reshape(-1).astype(np.float32, copy=False)
                 traj_tcp.append(tcp)
@@ -210,7 +235,7 @@ def main() -> None:
             out_dir / "trajectory.npz",
             actions=np.stack(traj_actions) if traj_actions else np.zeros((0, 7), dtype=np.float32),
             tcp=np.stack(traj_tcp) if traj_tcp else np.zeros((0, 0), dtype=np.float32),
-            prompt=args.prompt,
+            prompt=prompt,
             env_id=args.env_id,
         )
     print(

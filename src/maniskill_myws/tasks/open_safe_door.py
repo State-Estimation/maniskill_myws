@@ -18,6 +18,7 @@ from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
 from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import SimConfig
+from maniskill_myws.task_prompts import TASK_PROMPTS
 
 
 @register_env("OpenSafeDoor-v1", max_episode_steps=250)
@@ -37,6 +38,7 @@ class OpenSafeDoorEnv(BaseEnv):
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
     SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
     agent: Panda
+    DEFAULT_TASK_PROMPT = TASK_PROMPTS["OpenSafeDoor-v1"]
 
     # Joint semantics from mobility_v2.json:
     # - joint_0: door hinge (revolute, limited)

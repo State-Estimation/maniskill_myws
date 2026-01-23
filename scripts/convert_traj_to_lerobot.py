@@ -7,7 +7,7 @@ This mirrors openpi's LIBERO conversion example:
 
 We store the following features:
   - image: HWC uint8
-  - wrist_image: HWC uint8
+  - wrist_image: HWC uint8 (required)
   - state: 1D float32 (any length; openpi can pad)
   - actions: 7D float32 (pd_ee_delta_pose)
   - task: str (used as prompt when `prompt_from_task=True`)
@@ -21,7 +21,7 @@ Example:
     --wrist-image-key "obs/sensors/wrist_camera/rgb" \\
     --state-keys "obs/extra/tcp_pose" \\
     --actions-key "actions" \\
-    --task "turn the globe valve"
+    --task-from env_default
 """
 
 from __future__ import annotations
@@ -29,16 +29,32 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
+import importlib
 
 import numpy as np
 
 
+def _normalize_path(root: Any, path: str) -> str:
+    p = path.lstrip("/")
+    if p.startswith("obs/"):
+        try:
+            # If root is already the obs group, strip the leading "obs/".
+            if "obs" not in root and ("agent" in root or "sensor_data" in root or "extra" in root):
+                return p[len("obs/") :]
+        except Exception:
+            pass
+    return p
+
+
 def _h5_get(root: Any, path: str) -> Any:
     cur: Any = root
-    for part in path.split("/"):
+    norm_path = _normalize_path(root, path)
+    for part in norm_path.split("/"):
         cur = cur[part]
     return cur
 
@@ -69,30 +85,109 @@ def _build_state(obs_root: Any, t: int, state_keys: list[str]) -> np.ndarray:
     return np.concatenate(parts, axis=0)
 
 
-def _infer_task_for_h5(h5_path: Path, *, mode: str, fixed_task: str) -> str:
+def _load_env_entrypoint(env_id: str):
+    try:
+        from gymnasium.envs.registration import registry
+    except Exception as e:  # pragma: no cover
+        raise SystemExit("Please install gymnasium in your active conda env.") from e
+
+    try:
+        spec = registry[env_id]
+    except Exception as e:
+        raise SystemExit(
+            f"Env id '{env_id}' is not registered. Make sure maniskill_myws.register() was called."
+        ) from e
+
+    entry = spec.entry_point
+    if isinstance(entry, str):
+        module_path, attr = entry.split(":")
+        module = importlib.import_module(module_path)
+        return getattr(module, attr)
+    return entry
+
+
+def _ensure_myws_importable(myws_root: str | None) -> None:
+    if myws_root is None:
+        myws_root = os.environ.get("MANISKILL_MYWS_ROOT")
+    if not myws_root:
+        return
+    src_path = Path(myws_root).expanduser().resolve() / "src"
+    if src_path.exists():
+        sys.path.insert(0, str(src_path))
+
+
+def _get_prompt_from_mapping(env_id: str, *, myws_root: str | None) -> str | None:
+    _ensure_myws_importable(myws_root)
+    try:
+        from maniskill_myws.task_prompts import get_task_prompt
+
+        return get_task_prompt(env_id)
+    except Exception:
+        return None
+
+
+def _get_default_prompt_from_env_id(env_id: str, *, myws_root: str | None) -> str:
+    prompt = _get_prompt_from_mapping(env_id, myws_root=myws_root)
+    if prompt:
+        return prompt
+    _ensure_myws_importable(myws_root)
+    # Ensure custom tasks are registered.
+    try:
+        import maniskill_myws
+
+        maniskill_myws.register()
+    except Exception:
+        pass
+
+    obj = _load_env_entrypoint(env_id)
+    if hasattr(obj, "DEFAULT_TASK_PROMPT"):
+        prompt = getattr(obj, "DEFAULT_TASK_PROMPT")
+        if isinstance(prompt, str) and prompt:
+            return prompt
+    raise SystemExit(
+        f"Env '{env_id}' does not define DEFAULT_TASK_PROMPT. "
+        "Please add it to the task class."
+    )
+
+
+def _read_env_id_from_json(h5_path: Path) -> str | None:
+    json_path = h5_path.with_suffix(".json")
+    if json_path.exists():
+        try:
+            meta = json.loads(json_path.read_text())
+            env_id = meta.get("env_info", {}).get("env_id")
+            if isinstance(env_id, str) and env_id:
+                return env_id
+        except Exception:
+            pass
+    return None
+
+
+def _infer_task_for_h5(
+    h5_path: Path, *, mode: str, fixed_task: str, myws_root: str | None
+) -> str:
     """
     Infer per-file task string for multi-task training.
 
     - fixed: always use fixed_task
     - filename: use file stem (without extension)
     - json_env_id: read sibling .json (RecordEpisode metadata) and use env_info.env_id
+    - env_default: read sibling .json env_id and map to task.DEFAULT_TASK_PROMPT
     """
     if mode == "fixed":
         return fixed_task
     if mode == "filename":
         return h5_path.stem
     if mode == "json_env_id":
-        json_path = h5_path.with_suffix(".json")
-        if json_path.exists():
-            try:
-                meta = json.loads(json_path.read_text())
-                env_id = meta.get("env_info", {}).get("env_id")
-                if isinstance(env_id, str) and env_id:
-                    return env_id
-            except Exception:
-                pass
-        # fallback
-        return h5_path.stem
+        env_id = _read_env_id_from_json(h5_path)
+        return env_id if env_id is not None else h5_path.stem
+    if mode == "env_default":
+        env_id = _read_env_id_from_json(h5_path)
+        if env_id is None:
+            raise SystemExit(
+                f"Missing env_id in {h5_path.with_suffix('.json')}; required for --task-from env_default."
+            )
+        return _get_default_prompt_from_env_id(env_id, myws_root=myws_root)
     raise ValueError(f"Unknown --task-from: {mode}")
 
 
@@ -114,7 +209,12 @@ def main() -> None:
     parser.add_argument("--robot-type", type=str, default="panda")
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--image-key", type=str, required=True, help="H5 path inside traj group (no leading slash)")
-    parser.add_argument("--wrist-image-key", type=str, required=True)
+    parser.add_argument(
+        "--wrist-image-key",
+        type=str,
+        required=True,
+        help="Required. H5 path inside traj group for wrist image.",
+    )
     parser.add_argument(
         "--state-keys",
         type=str,
@@ -128,11 +228,20 @@ def main() -> None:
         "--task-from",
         type=str,
         default="fixed",
-        choices=["fixed", "filename", "json_env_id"],
-        help="How to populate the LeRobot 'task' field. "
-        "'json_env_id' reads the sibling RecordEpisode .json's env_info.env_id (recommended for multi-task).",
+        choices=["fixed", "filename", "json_env_id", "env_default"],
+        help=(
+            "How to populate the LeRobot 'task' field. "
+            "'json_env_id' reads the sibling RecordEpisode .json's env_info.env_id. "
+            "'env_default' maps env_id to task.DEFAULT_TASK_PROMPT."
+        ),
     )
     parser.add_argument("--push-to-hub", action="store_true")
+    parser.add_argument(
+        "--myws-root",
+        type=str,
+        default=None,
+        help="Path to maniskill_myws repo root (if not installed as a package).",
+    )
     args = parser.parse_args()
 
     try:
@@ -164,14 +273,27 @@ def main() -> None:
     # Determine shapes from first file/traj.
     with h5py.File(h5_files[0], "r") as f:
         trajs = sorted([k for k in f.keys() if k.startswith("traj_")])
-        if not trajs:
-            raise SystemExit(f"No traj_* found in {h5_files[0]}")
-        g = f[trajs[0]]
-        obs_g = g["obs"]
-        img0 = _to_uint8_hwc(np.asarray(_h5_get(g, args.image_key))[0])
-        wimg0 = _to_uint8_hwc(np.asarray(_h5_get(g, args.wrist_image_key))[0])
+        if trajs:
+            g = f[trajs[0]]
+            if "obs" not in g:
+                raise SystemExit(
+                    f"Missing 'obs' group in first trajectory. "
+                    f"file={h5_files[0]} traj={trajs[0]} keys={list(g.keys())}"
+                )
+            obs_g = g["obs"]
+            img0 = _to_uint8_hwc(np.asarray(_h5_get(g, args.image_key))[0])
+            wimg0 = _to_uint8_hwc(np.asarray(_h5_get(g, args.wrist_image_key))[0])
+            act0 = np.asarray(_h5_get(g, args.actions_key))[0].reshape(-1).astype(np.float32)
+        else:
+            if "obs" not in f:
+                raise SystemExit(
+                    f"Missing 'obs' group in file={h5_files[0]} keys={list(f.keys())}"
+                )
+            obs_g = f["obs"]
+            img0 = _to_uint8_hwc(np.asarray(_h5_get(f, args.image_key))[0])
+            wimg0 = _to_uint8_hwc(np.asarray(_h5_get(f, args.wrist_image_key))[0])
+            act0 = np.asarray(_h5_get(f, args.actions_key))[0].reshape(-1).astype(np.float32)
         state0 = _build_state(obs_g, 0, args.state_keys)
-        act0 = np.asarray(_h5_get(g, args.actions_key))[0].reshape(-1).astype(np.float32)
 
     # Create dataset.
     output_path = HF_LEROBOT_HOME / args.repo_id
@@ -195,11 +317,18 @@ def main() -> None:
     # Write episodes.
     for h5_path in h5_files:
         h5_path = Path(h5_path)
-        task_str = _infer_task_for_h5(h5_path, mode=args.task_from, fixed_task=args.task)
+        task_str = _infer_task_for_h5(
+            h5_path, mode=args.task_from, fixed_task=args.task, myws_root=args.myws_root
+        )
         with h5py.File(str(h5_path), "r") as f:
             trajs = sorted([k for k in f.keys() if k.startswith("traj_")])
-            for tk in trajs:
-                g = f[tk]
+            traj_keys = trajs if trajs else [None]
+            for tk in traj_keys:
+                g = f if tk is None else f[tk]
+                if "obs" not in g:
+                    raise SystemExit(
+                        f"Missing 'obs' group. file={h5_path} traj={tk} keys={list(g.keys())}"
+                    )
                 obs_g = g["obs"]
                 actions = np.asarray(_h5_get(g, args.actions_key), dtype=np.float32)
                 T = int(actions.shape[0])
@@ -208,10 +337,11 @@ def main() -> None:
                 wimgs = np.asarray(_h5_get(g, args.wrist_image_key))
                 # obs groups are typically length T+1; we align with actions length T.
                 for t in range(T):
+                    wrist_img = _to_uint8_hwc(wimgs[t])
                     dataset.add_frame(
                         {
                             "image": _to_uint8_hwc(imgs[t]),
-                            "wrist_image": _to_uint8_hwc(wimgs[t]),
+                            "wrist_image": wrist_img,
                             "state": _build_state(obs_g, t, args.state_keys),
                             "actions": actions[t],
                             "task": task_str,

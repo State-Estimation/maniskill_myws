@@ -77,6 +77,12 @@ def main() -> None:
     p.add_argument("--config", type=str, default="pi05_libero", help="openpi config name (e.g. pi0_libero/pi05_libero)")
     p.add_argument("--checkpoint", type=str, required=True, help="Checkpoint dir (local path or gs://...)")
     p.add_argument("--default-prompt", type=str, default=None)
+    p.add_argument(
+        "--norm-stats",
+        type=str,
+        default=None,
+        help="Optional path to norm_stats.json to use instead of checkpoint assets.",
+    )
     p.add_argument("--record", action="store_true")
     p.add_argument(
         "--openpi-root",
@@ -105,7 +111,17 @@ def main() -> None:
     from openpi.training import config as openpi_config
 
     cfg = openpi_config.get_config(args.config)
-    policy = policy_config.create_trained_policy(cfg, args.checkpoint, default_prompt=args.default_prompt)
+    norm_stats = None
+    if args.norm_stats:
+        from openpi.shared import normalize as _normalize
+
+        norm_stats = _normalize.load(Path(args.norm_stats))
+    policy = policy_config.create_trained_policy(
+        cfg,
+        args.checkpoint,
+        default_prompt=args.default_prompt,
+        norm_stats=norm_stats,
+    )
     if args.record:
         policy = _policy.PolicyRecorder(policy, "policy_records")
 

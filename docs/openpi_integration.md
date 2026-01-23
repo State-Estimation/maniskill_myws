@@ -45,10 +45,10 @@ pip install -e /home/sisyphus/Projects/openpi/packages/openpi-client
 
 openpi 的 LIBERO 转换脚本定义的 LeRobot dataset 特征（我们建议保持一致）：
 - `image`: (H,W,3) uint8 或 image dtype（第三人称/基座相机）
-- `wrist_image`: (H,W,3)（腕部相机）
+- `wrist_image`: (H,W,3)（腕部相机，必须存在）
 - `state`: 1D float32（建议 8~32 维均可；openpi 会 pad 到 `action_dim`）
 - `actions`: 7D float32（对应 `pd_ee_delta_pose`：一般是 6D Δpose + gripper）
-- `task`: str（暂时没有语言标注也没关系：可以填固定字符串，如 `"turn the valve"`）
+- `task`: str（统一从 `DEFAULT_TASK_PROMPT` 获取）
 
 训练时在 openpi config 里设置 `prompt_from_task=True`，即可把 `task` 当作 prompt 使用。
 
@@ -65,7 +65,7 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/inspect_traj_h5.py \
 
 ### 3.2 转换为 LeRobot dataset（本地）
 示例（你需要根据 inspect 输出选择图片与 state 的来源键）。
-如果你有**多任务** `.h5`，把不同任务的 `.h5 + .json` 放到同一个目录下，然后用 `--h5-dir` 一次性转换，并用 `--task-from json_env_id` 自动把 `env_id` 写入 LeRobot 的 `task` 字段：
+如果你有**多任务** `.h5`，把不同任务的 `.h5 + .json` 放到同一个目录下，然后用 `--h5-dir` 一次性转换，并用 `--task-from env_default` 自动把 `DEFAULT_TASK_PROMPT` 写入 LeRobot 的 `task` 字段：
 
 ```bash
 conda activate mani_skill
@@ -79,7 +79,7 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py
   --wrist-image-key "obs/sensors/wrist_camera/rgb" \
   --state-keys "obs/extra/tcp_pose" "obs/agent/qpos" \
   --actions-key "actions" \
-  --task-from json_env_id
+  --task-from env_default
 ```
 
 > 说明：键名只是示例，真正的键要以你的 obs_mode/RecordEpisode 输出为准。
@@ -88,24 +88,7 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py
 
 ## 4) 用 openpi 的现有训练 config 直接训练（无需改 openpi 源码）
 
-你可以直接复用 openpi 里现成的 `pi0_libero` config，并用 Tyro 覆盖 dataset repo_id：
-
-```bash
-conda activate mani_skill
-
-# 先算 norm stats（重要）
-python /home/sisyphus/Projects/openpi/scripts/compute_norm_stats.py \
-  --config-name pi0_libero \
-  --data.repo_id "local/maniskill_myws_turn_globe_valve"
-
-# 再训练
-python /home/sisyphus/Projects/openpi/scripts/train.py pi0_libero \
-  --exp-name ms_pi0_v1 \
-  --overwrite \
-  --data.repo_id "local/maniskill_myws_turn_globe_valve"
-```
-
-如果你显存不足，优先用 openpi 提供的 LoRA 例子（`pi0_libero_low_mem_finetune`）。
+训练与 norm stats 计算**都在 openpi 的 uv 环境**中完成。推荐使用 myws 的一键脚本：
 
 ### 推荐：用 myws 提供的“一键微调脚本”（计算 norm stats + 启动训练）
 
@@ -122,6 +105,40 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_manisk
   --checkpoint-base-dir /home/sisyphus/Projects/maniskill_myws/checkpoints_openpi \
   --overwrite
 ```
+
+如果你只想先计算 norm stats（不训练）：
+```bash
+cd /home/sisyphus/Projects/openpi
+uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_maniskill.py \
+  --openpi-root /home/sisyphus/Projects/openpi \
+  --config pi05_libero \
+  --repo-id local/maniskill_myws_multitask \
+  --exp-name ms_pi05_v1 \
+  --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \
+  --checkpoint-base-dir /home/sisyphus/Projects/maniskill_myws/checkpoints_openpi \
+  --only-norm-stats
+```
+
+如果你显存不足，优先用 openpi 提供的 LoRA 例子（`pi0_libero_low_mem_finetune`）。
+
+### 4.1 转换是否正确？（离线验证清单）
+在“任务表现”之前，先确认**数据格式/管线完全正确**。推荐在 openpi(uv) 环境中做离线验证：
+
+```bash
+cd /home/sisyphus/Projects/openpi
+uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/validate_lerobot_dataset.py \
+  --openpi-root /home/sisyphus/Projects/openpi \
+  --config pi05_libero \
+  --repo-id local/maniskill_myws_multitask \
+  --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \
+  --num-batches 1 \
+  --save-images /home/sisyphus/Projects/maniskill_myws/outputs/validate_samples
+```
+
+你应该看到：
+- observation 里有 `images/*`、`state`（以及 `prompt` 若 `prompt_from_task=True`）
+- `actions` 维度是 `(B, horizon, 7)` 或等价结构（取决于 config 的 action 序列键）
+- 保存出来的样例图像内容正常（不是全黑/全 0），腕部相机若任务无该视角可能会“缺失/全 0”
 
 ---
 
@@ -162,7 +179,6 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/run_pi0_remote.py \
   --image-key sensor_data/base_camera/rgb \
   --wrist-image-key sensor_data/hand_camera/rgb \
   --state-key extra/tcp_pose \
-  --prompt "turn the globe valve" \
   --render-mode human
 ```
 

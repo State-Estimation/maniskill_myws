@@ -209,3 +209,16 @@ outputs/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Training assets and checkpoints (too large for git)
+assets_openpi/
+checkpoints_openpi/
+
+# Demo data (should be tracked by DVC or stored separately)
+demos/
+data/demos/
+
+# Videos
+vedios/
+outputs/
+

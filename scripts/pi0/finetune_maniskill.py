@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import openpi.transforms as transforms
 
 
 def _ensure_openpi_importable(openpi_root: str | None) -> Path:
@@ -60,6 +61,11 @@ def _ensure_openpi_importable(openpi_root: str | None) -> Path:
     return root_path
 
 
+class RemoveStrings(transforms.DataTransformFn):
+    def __call__(self, x: dict) -> dict:
+        return {k: v for k, v in x.items() if not np.issubdtype(np.asarray(v).dtype, np.str_)}
+
+
 def compute_norm_stats_for_repo(
     *,
     openpi_root: Path,
@@ -73,12 +79,6 @@ def compute_norm_stats_for_repo(
     import openpi.shared.normalize as normalize
     import openpi.training.config as _config
     import openpi.training.data_loader as _data_loader
-    import openpi.transforms as transforms
-
-    class RemoveStrings(transforms.DataTransformFn):
-        def __call__(self, x: dict) -> dict:
-            return {k: v for k, v in x.items() if not np.issubdtype(np.asarray(v).dtype, np.str_)}
-
     base_cfg = _config.get_config(config_name)
     if batch_size is None:
         batch_size = base_cfg.batch_size
@@ -156,21 +156,39 @@ def main() -> None:
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--wandb-enabled", action="store_true", default=False)
+    p.add_argument(
+        "--only-norm-stats",
+        action="store_true",
+        help="Compute norm stats and exit without launching training.",
+    )
+    p.add_argument(
+        "--force-norm-stats",
+        action="store_true",
+        help="Recompute norm stats even if an existing file is found.",
+    )
 
     args = p.parse_args()
 
     openpi_root = _ensure_openpi_importable(args.openpi_root)
 
-    stats_dir = compute_norm_stats_for_repo(
-        openpi_root=openpi_root,
-        config_name=args.config,
-        repo_id=args.repo_id,
-        assets_base_dir=args.assets_base_dir,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        max_frames=args.max_frames,
-    )
-    print("✓ Wrote norm stats to:", str(stats_dir))
+    stats_dir = Path(args.assets_base_dir) / args.config / args.repo_id
+    norm_stats_path = stats_dir / "norm_stats.json"
+    if norm_stats_path.exists() and not args.force_norm_stats:
+        print("✓ Using existing norm stats:", str(norm_stats_path))
+    else:
+        stats_dir = compute_norm_stats_for_repo(
+            openpi_root=openpi_root,
+            config_name=args.config,
+            repo_id=args.repo_id,
+            assets_base_dir=args.assets_base_dir,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            max_frames=args.max_frames,
+        )
+        print("✓ Wrote norm stats to:", str(stats_dir))
+
+    if args.only_norm_stats:
+        return
 
     train_py = openpi_root / "scripts" / "train.py"
     cmd = [
@@ -185,9 +203,9 @@ def main() -> None:
         args.checkpoint_base_dir,
         "--data.repo_id",
         args.repo_id,
-        "--wandb_enabled",
-        "True" if args.wandb_enabled else "False",
     ]
+    if args.wandb_enabled:
+        cmd += ["--wandb_enabled"]
     if args.batch_size is not None:
         cmd += ["--batch_size", str(args.batch_size)]
     if args.overwrite:
