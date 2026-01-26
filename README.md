@@ -1,27 +1,23 @@
 # maniskill_myws
 
-Custom ManiSkill tasks + imitation learning workspace (local-source development).
+自定义 ManiSkill 任务 + openpi(π0/π0.5) 训练/推理工作区。
 
-## Quick start (local-source ManiSkill)
+## 快速开始（本地 ManiSkill 源码）
 
-- **Install ManiSkill (your local source checkout)**: follow your ManiSkill repo instructions, then make sure `import mani_skill` works.
-- **Install this workspace**:
+1) 安装 ManiSkill（本地源码或已有环境），确保 `import mani_skill` 可用。  
+2) 安装本工作区：
 
 ```bash
 cd /your/path/to/maniskill_myws
 pip install -e .[runtime,dev]
 ```
 
-## Create the custom environment
-
-This workspace uses a `register()` entrypoint to ensure all tasks are imported and registered:
+## 环境注册与创建
 
 ```python
 import maniskill_myws
 maniskill_myws.register()
 ```
-
-Then you can create the environment:
 
 ```python
 import gymnasium as gym
@@ -32,75 +28,85 @@ env = gym.make("TurnGlobeValve-v1", obs_mode="state", reward_mode="none", render
 obs, info = env.reset(seed=0)
 ```
 
-Available env IDs (in this repo):
+已注册环境：
 - `TurnGlobeValve-v1`
-- `OpenSafeDoor-v1` (asset `101593`, knob rotate > 90deg then door open > 60deg)
-- `StackCube-v2` (standardized sensors for VLA data collection)
+- `OpenSafeDoor-v1`（asset `101593`，旋钮>90° 且门>60°）
+- `StackCube-v2`（VLA 标准采集传感器）
 
-## Scripts
+## 常用脚本
 
-- **Check env can be created**:
-
+1) **检查环境可用性**
 ```bash
 python scripts/check_env.py --env-id TurnGlobeValve-v1
 ```
 
-- **Run ManiSkill's random-action demo with your custom task (supports `--render-mode human`)**:
-
-```bash
-python scripts/ms_demo_random_action.py -e TurnGlobeValve-v1 --render-mode human
-```
-
-- **Run any ManiSkill demo module (generic wrapper)**:
-
+2) **运行 ManiSkill 官方 demo（随机动作）**
 ```bash
 python scripts/run_maniskill_demo.py mani_skill.examples.demo_random_action -e TurnGlobeValve-v1 --render-mode human
 ```
 
-- **Manual-control demos 注意事项**:
-  `mani_skill.examples.demo_manual_control(_continuous)` 脚本内部会执行 `env.render().cpu().numpy()`，因此它们期望 `render_mode` 返回图像（例如 `sensors`/`rgb_array`），**不兼容 `--render-mode human`**。
-  如果你想用 SAPIEN Viewer，请保持 `--render-mode sensors`，并额外加 `--enable-sapien-viewer`：
-
+3) **手动控制 demo 注意事项**
+`demo_manual_control(_continuous)` 期望 `render_mode` 返回图像，**不兼容 `--render-mode human`**。需要 SAPIEN Viewer 时使用：
 ```bash
-python scripts/run_maniskill_demo.py mani_skill.examples.demo_manual_control_continuous -e TurnGlobeValve-v1 --render-mode sensors --enable-sapien-viewer
+python scripts/run_maniskill_demo.py mani_skill.examples.demo_manual_control_continuous \
+  -e TurnGlobeValve-v1 --render-mode sensors --enable-sapien-viewer
 ```
 
-- **Record random rollouts (debugging the imitation pipeline)**:
-
+4) **录制随机轨迹（用于 imitation pipeline 调试）**
 ```bash
 python scripts/record_random.py --env-id TurnGlobeValve-v1 --out-dir data/demos/debug --num-episodes 5
 ```
+输出为 ManiSkill 原生 `.h5 + .json`。
 
-Trajectory output is ManiSkill's native `.h5 + .json` format.
+## openpi(π0/π0.5) 集成（Submodule 方案）
 
-## openpi (π0/π0.5) integration
+本仓库使用 **Git submodule** 固定 openpi 版本，路径为：
+`third_party/openpi`
 
-This workspace can be used to train / run openpi VLA policies on custom ManiSkill tasks by:
-- converting RecordEpisode trajectories (`.h5`) to a LeRobot dataset
-- running openpi fine-tuning with existing configs (LIBERO-style)
-- rolling out the trained policy in ManiSkill
-
-See: `docs/openpi_integration.md`
-See also: `docs/maniskill_dataset_standard.md`
-
-### Minimal two-process workflow (server + ManiSkill client)
-
-1) **Start π0 server** (separate env/machine with openpi installed):
-
+初始化子模块：
 ```bash
-python scripts/pi0/serve.py \
+cd /your/path/to/maniskill_myws
+git submodule update --init --recursive
+```
+
+更详细说明见：
+- `docs/openpi_integration.md`
+- `docs/maniskill_dataset_standard.md`
+
+### 训练端环境（openpi uv 环境）
+```bash
+cd /your/path/to/maniskill_myws/third_party/openpi
+uv sync
+```
+
+### 客户端环境（ManiSkill）
+```bash
+pip install -e /your/path/to/maniskill_myws/third_party/openpi/packages/openpi-client
+```
+
+### 最小两进程流程（server + ManiSkill client）
+
+1) **启动 π0 服务端（openpi uv 环境）**
+```bash
+cd /your/path/to/maniskill_myws/third_party/openpi
+uv run python /your/path/to/maniskill_myws/scripts/pi0/serve.py \
   --config pi05_libero \
   --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
   --port 8000
 ```
 
-2) **Run ManiSkill visualization client** (your `conda activate mani_skill` env):
-
+2) **启动 ManiSkill 客户端（mani_skill 环境）**
 ```bash
-pip install -e /home/sisyphus/Projects/openpi/packages/openpi-client
-python scripts/pi0/run_pi0_remote.py --server ws://127.0.0.1:8000 --env-id TurnGlobeValve-v1 --save-images
+python /your/path/to/maniskill_myws/scripts/pi0/run_pi0_remote.py \
+  --server ws://127.0.0.1:8000 \
+  --env-id TurnGlobeValve-v1 \
+  --save-images
 ```
 
-## Imitation learning (Behavior Cloning baseline)
+## 训练/数据工具入口
 
-WIP
+- `.h5 -> LeRobot`：`scripts/convert_traj_to_lerobot.py`
+- 数据验证：`scripts/pi0/validate_lerobot_dataset.py`
+- 一键微调：`scripts/pi0/finetune_maniskill.py`
+
+> 这些脚本的完整参数与示例见 `docs/openpi_integration.md`。

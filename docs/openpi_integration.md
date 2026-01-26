@@ -34,10 +34,17 @@ conda activate mani_skill
 pip install -e /home/sisyphus/Projects/maniskill_myws[runtime,dev]
 
 # 2) 安装 openpi-client（客户端只需要它，不需要装 openpi/JAX）
-pip install -e /home/sisyphus/Projects/openpi/packages/openpi-client
+pip install -e /home/sisyphus/Projects/maniskill_myws/third_party/openpi/packages/openpi-client
 ```
 
-> 推理/训练端使用 openpi 的 uv 环境：`cd /home/sisyphus/Projects/openpi && uv sync`
+> 推理/训练端使用 openpi 的 uv 环境：`cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi && uv sync`
+
+### OpenPI 子模块（可复现）
+仓库内已通过 Git submodule 固定 openpi 版本：
+```bash
+cd /home/sisyphus/Projects/maniskill_myws
+git submodule update --init --recursive
+```
 
 ---
 
@@ -95,9 +102,9 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py
 我们提供了一个脚本 `scripts/pi0/finetune_maniskill.py`，用于在 openpi(uv) 环境中对 ManiSkill 的 LeRobot 数据集进行微调：
 
 ```bash
-cd /home/sisyphus/Projects/openpi
+cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
 uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_maniskill.py \
-  --openpi-root /home/sisyphus/Projects/openpi \
+  --openpi-root /home/sisyphus/Projects/maniskill_myws/third_party/openpi \
   --config pi05_libero \
   --repo-id local/maniskill_myws_multitask \
   --exp-name ms_pi05_v1 \
@@ -108,9 +115,9 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_manisk
 
 如果你只想先计算 norm stats（不训练）：
 ```bash
-cd /home/sisyphus/Projects/openpi
+cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
 uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_maniskill.py \
-  --openpi-root /home/sisyphus/Projects/openpi \
+  --openpi-root /home/sisyphus/Projects/maniskill_myws/third_party/openpi \
   --config pi05_libero \
   --repo-id local/maniskill_myws_multitask \
   --exp-name ms_pi05_v1 \
@@ -125,9 +132,9 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_manisk
 在“任务表现”之前，先确认**数据格式/管线完全正确**。推荐在 openpi(uv) 环境中做离线验证：
 
 ```bash
-cd /home/sisyphus/Projects/openpi
+cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
 uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/validate_lerobot_dataset.py \
-  --openpi-root /home/sisyphus/Projects/openpi \
+  --openpi-root /home/sisyphus/Projects/maniskill_myws/third_party/openpi \
   --config pi05_libero \
   --repo-id local/maniskill_myws_multitask \
   --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \
@@ -150,16 +157,15 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/validate_lerobo
 推荐直接用 openpi 的默认 LIBERO expert（π0.5-LIBERO）：
 
 ```bash
-cd /home/sisyphus/Projects/openpi
+cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
 uv run python scripts/serve_policy.py --env LIBERO --port 8000
 ```
 
-或者用 myws 的 wrapper（支持在 import JAX 前设置 `XLA_FLAGS`，并且可在 openpi 未安装为包时用 `--openpi-root` 指向源码）：
+或者用 myws 的 wrapper（支持在 import JAX 前设置 `XLA_FLAGS`）：
 
 ```bash
-cd /home/sisyphus/Projects/openpi
+cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
 uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/serve.py \
-  --openpi-root /home/sisyphus/Projects/openpi \
   --config pi05_libero \
   --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
   --port 8000

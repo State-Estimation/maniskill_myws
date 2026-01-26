@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sys
 from pathlib import Path
 
 
@@ -40,36 +39,6 @@ def _apply_xla_flags(*, safe: bool, extra: str | None) -> None:
     os.environ["XLA_FLAGS"] = (cur + " " + add).strip() if cur else add
 
 
-def _ensure_openpi_importable(openpi_root: str | None) -> None:
-    """
-    Ensure `import openpi` works.
-
-    This script is meant to run inside the *policy* environment (uv/conda) that already has openpi deps installed.
-    If openpi itself isn't installed as a package in that env, we can still import it by adding
-    <openpi_root>/src to PYTHONPATH.
-    """
-    try:
-        import openpi  # noqa: F401
-
-        return
-    except Exception:
-        pass
-
-    root = openpi_root or os.environ.get("OPENPI_ROOT")
-    if not root:
-        raise ModuleNotFoundError(
-            "No module named 'openpi'.\n"
-            "Start the server inside your openpi uv env (recommended), OR pass --openpi-root /path/to/openpi, "
-            "OR set OPENPI_ROOT=/path/to/openpi."
-        )
-    src = (Path(root).expanduser().resolve() / "src").as_posix()
-    if src not in sys.path:
-        sys.path.insert(0, src)
-
-    # Re-check.
-    import openpi  # noqa: F401
-
-
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--host", type=str, default="0.0.0.0")
@@ -84,14 +53,6 @@ def main() -> None:
         help="Optional path to norm_stats.json to use instead of checkpoint assets.",
     )
     p.add_argument("--record", action="store_true")
-    p.add_argument(
-        "--openpi-root",
-        type=str,
-        default=None,
-        help="Optional path to openpi repo (adds <openpi_root>/src to PYTHONPATH if openpi isn't installed). "
-        "Alternative: set OPENPI_ROOT.",
-    )
-
     # XLA safety knobs (must be applied before importing openpi/JAX).
     p.add_argument("--xla-safe", action="store_true", help="set conservative XLA_FLAGS to reduce GPU autotuning issues")
     p.add_argument("--xla-flags", type=str, default=None, help='append to XLA_FLAGS (e.g. "--xla_gpu_autotune_level=0")')
@@ -101,8 +62,6 @@ def main() -> None:
     _apply_xla_flags(safe=bool(args.xla_safe), extra=args.xla_flags)
     if os.environ.get("XLA_FLAGS"):
         logging.info("XLA_FLAGS=%s", os.environ["XLA_FLAGS"])
-
-    _ensure_openpi_importable(args.openpi_root)
 
     # Lazy imports after XLA_FLAGS is set.
     from openpi.policies import policy as _policy
