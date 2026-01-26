@@ -64,7 +64,7 @@ def main() -> None:
     results = []
     success_count = 0
     
-    print(f"=== Multi-Seed Evaluation ===")
+    print("=== Multi-Seed Evaluation ===")
     print(f"Environment: {args.env_id}")
     print(f"Server: {args.server}")
     print(f"Seeds: {args.start_seed} to {args.start_seed + args.num_seeds - 1}")
@@ -141,7 +141,7 @@ def main() -> None:
                 print(f"✗ Failed ({steps} steps)")
                 
         except subprocess.TimeoutExpired:
-            print(f"✗ Timeout")
+            print("✗ Timeout")
             results.append({
                 "seed": seed,
                 "success": False,
@@ -173,10 +173,10 @@ def main() -> None:
         f.write(f"Environment: {args.env_id}\n")
         f.write(f"Server: {args.server}\n")
         f.write(f"Timestamp: {timestamp}\n")
-        f.write(f"\nResults:\n")
+        f.write("\nResults:\n")
         for r in results:
             f.write(f"  Seed {r['seed']}: {'✓' if r['success'] else '✗'} ({r['steps']} steps)\n")
-        f.write(f"\nSummary:\n")
+        f.write("\nSummary:\n")
         f.write(f"  Success rate: {100 * success_count / args.num_seeds:.1f}%\n")
         f.write(f"  Average steps: {avg_steps:.1f}\n")
     

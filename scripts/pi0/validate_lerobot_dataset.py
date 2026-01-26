@@ -103,7 +103,7 @@ def main() -> None:
     p.add_argument("--run-model-forward", action="store_true", help="Run one compute_loss forward pass (JAX).")
     args = p.parse_args()
 
-    openpi_root = _ensure_openpi_importable(args.openpi_root)
+    _ensure_openpi_importable(args.openpi_root)
 
     import openpi.training.config as _config
     import openpi.training.data_loader as _data_loader
