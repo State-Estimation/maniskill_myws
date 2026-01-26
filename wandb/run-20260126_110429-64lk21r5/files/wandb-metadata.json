@@ -1,0 +1,64 @@
+{
+  "os": "Linux-6.8.0-87-generic-x86_64-with-glibc2.35",
+  "python": "CPython 3.11.14",
+  "startedAt": "2026-01-26T03:04:29.006944Z",
+  "args": [
+    "pi0_libero_low_mem_finetune",
+    "--exp_name",
+    "pi0_lora_deepspeed_test",
+    "--assets_base_dir",
+    "/home/sisyphus/Projects/maniskill_myws/assets_openpi",
+    "--checkpoint_base_dir",
+    "/home/sisyphus/Projects/maniskill_myws/checkpoints_openpi",
+    "--data.repo_id",
+    "local/maniskill_stackcube_v2",
+    "--batch_size",
+    "32",
+    "--num_train_steps",
+    "30000",
+    "--wandb_enabled"
+  ],
+  "program": "/home/sisyphus/Projects/maniskill_myws/scripts/pi0/train_deepspeed.py",
+  "codePath": "scripts/pi0/train_deepspeed.py",
+  "git": {
+    "remote": "git@github.com:bitqjy/maniskill_myws.git",
+    "commit": "737677875710f90bfebff44b2a8b49b21db5ab49"
+  },
+  "email": "1632003631@qq.com",
+  "root": "/home/sisyphus/Projects/maniskill_myws",
+  "host": "sisyphus-dual4090",
+  "executable": "/home/sisyphus/Projects/openpi/.venv/bin/python3",
+  "codePathLocal": "scripts/pi0/train_deepspeed.py",
+  "cpu_count": 24,
+  "cpu_count_logical": 32,
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "gpu_count": 2,
+  "disk": {
+    "/": {
+      "total": "2014574526464",
+      "used": "1814906245120"
+    }
+  },
+  "memory": {
+    "total": "134832340992"
+  },
+  "cpu": {
+    "count": 24,
+    "countLogical": 32
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 4090",
+      "memoryTotal": "25757220864",
+      "cudaCores": 16384,
+      "architecture": "Ada"
+    },
+    {
+      "name": "NVIDIA GeForce RTX 4090",
+      "memoryTotal": "25757220864",
+      "cudaCores": 16384,
+      "architecture": "Ada"
+    }
+  ],
+  "cudaVersion": "12.6"
+}

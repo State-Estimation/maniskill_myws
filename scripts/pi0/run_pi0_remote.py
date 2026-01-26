@@ -170,7 +170,8 @@ def main() -> None:
     if args.state_keys is not None and len(args.state_keys) > 0:
         state_keys = args.state_keys
     else:
-        state_keys = ["extra/tcp_pose"]
+        # Default to 25D state (matching training data format)
+        state_keys = ["agent/qpos", "agent/qvel", "extra/tcp_pose"]
 
     adapter = ObsAdapter(
         image_key=args.image_key,
