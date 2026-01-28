@@ -114,7 +114,7 @@ class VRWebSocketServer(BaseInputProvider):
         """
         解析单个手柄的所有数据，打包成唯一的 ControlGoal
         """
-        controller = self.left_controller if hand == 'left' else self.right_controller
+        #controller = self.left_controller if hand == 'left' else self.right_controller
         
         # --- 1. 提取基础输入数据 ---
         position = data.get('position', {})
@@ -227,7 +227,7 @@ class VRWebSocketServer(BaseInputProvider):
                 math.radians(euler_deg.get('z', 0))
             ]
             return R.from_euler('xyz', euler_rad).as_quat()
-        except:
+        except Exception:
             return np.array([0, 0, 0, 1])
 
     async def send_goal(self, goal: ControlGoal):
