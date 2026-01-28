@@ -222,3 +222,6 @@ data/demos/
 vedios/
 outputs/
 
+uv.lock
+.python-version
+third_party/XLeVR/README.md
