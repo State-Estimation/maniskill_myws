@@ -225,3 +225,4 @@ outputs/
 uv.lock
 .python-version
 third_party/XLeVR/README.md
+third_party/XLeVR/xlevr/inputs/vr_ws_server.py
