@@ -48,6 +48,6 @@ class BaseInputProvider(ABC):
         """Send a control goal to the command queue."""
         try:
             await self.command_queue.put(goal)
-        except Exception as e:
+        except Exception:
             # Handle queue full or other errors
             pass 

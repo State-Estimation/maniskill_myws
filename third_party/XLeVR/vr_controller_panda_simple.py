@@ -9,7 +9,6 @@ import sys
 import threading
 import numpy as np
 import gymnasium as gym
-import sapien.core as sapien
 import asyncio
 import tyro
 from dataclasses import dataclass
@@ -30,6 +29,7 @@ setup_xlevr_environment()
 
 from mani_skill.utils.wrappers.record import RecordEpisode
 from mani_skill.utils.structs import SimConfig
+import maniskill_myws.tasks
 
 # =========================
 # Thread Safe Buffer & VR Thread
@@ -199,7 +199,6 @@ class VRPlannerController:
 # =========================
 # Main
 # =========================
-import maniskill_myws.tasks
 @dataclass
 class Args:
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TurnGlobeValve-v1"

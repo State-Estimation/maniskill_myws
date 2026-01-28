@@ -6,9 +6,7 @@ Loads configuration from config.yaml file with fallback to default values.
 import os
 import yaml
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
-import numpy as np
-from pathlib import Path
+from typing import Dict
 
 # Default configuration values (fallback if YAML file doesn't exist)
 DEFAULT_CONFIG = {

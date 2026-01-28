@@ -7,14 +7,10 @@ Can call XLeVR's VR functionality from other folders and read/print VR control i
 import os
 import sys
 import asyncio
-import json
-import logging
 import threading
 import http.server
 import ssl
 import socket
-from pathlib import Path
-from typing import Optional
 
 # Set the absolute path to the xlevr folder
 XLEVR_PATH = "/home/firedust/mimic/maniskill_myws/third_party/XLeVR"
@@ -272,7 +268,7 @@ class VRMonitor:
             
             # Display connection information
             host_display = get_local_ip() if self.config.host_ip == "0.0.0.0" else self.config.host_ip
-            print(f"📱 Open your VR headset browser and navigate to:")
+            print("📱 Open your VR headset browser and navigate to:")
             print(f"   https://{host_display}:{self.config.https_port}")
             print("🎯 Press Ctrl+C to stop monitoring")
             print()
@@ -321,7 +317,7 @@ class VRMonitor:
     
     def print_control_goal(self, goal):
         """Print control goal information"""
-        print(f"\n🎮 Control Goal Received:")
+        print("\n🎮 Control Goal Received:")
         print(f"   Timestamp: {asyncio.get_event_loop().time():.3f}")
         print(f"   Arm: {goal.arm}")
         print(f"   Mode: {goal.mode}")
