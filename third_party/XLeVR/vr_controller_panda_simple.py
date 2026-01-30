@@ -7,13 +7,16 @@ Logic: Calculate (Current_VR - Last_VR) * Transform_Matrix -> Action
 import os
 import sys
 import threading
-import numpy as np
-import gymnasium as gym
 import asyncio
-import tyro
 from dataclasses import dataclass
 from typing import Annotated
+
+import gymnasium as gym
+import numpy as np
 import transforms3d.quaternions as tf_quat
+import tyro
+from mani_skill.utils.wrappers.record import RecordEpisode
+from mani_skill.utils.structs import SimConfig
 
 # =========================
 # Path Setup
@@ -24,12 +27,6 @@ def setup_xlevr_environment():
         sys.path.insert(0, XLEVR_PATH)
     os.chdir(XLEVR_PATH)
     os.environ["PYTHONPATH"] = f"{XLEVR_PATH}:{os.environ.get('PYTHONPATH', '')}"
-
-setup_xlevr_environment()
-
-from mani_skill.utils.wrappers.record import RecordEpisode
-from mani_skill.utils.structs import SimConfig
-import maniskill_myws.tasks
 
 # =========================
 # Thread Safe Buffer & VR Thread
@@ -54,6 +51,7 @@ class VRInputThread(threading.Thread):
         self.running = True
 
     def run(self):
+        setup_xlevr_environment()
         from vr_monitor import VRMonitor
         vr_monitor = VRMonitor()
         print("[VR Thread] Connecting...")
@@ -178,8 +176,10 @@ class VRPlannerController:
                 
                 # 4. 组装并缩放
                 # Normalize angle
-                if angle > np.pi: angle -= 2*np.pi
-                elif angle < -np.pi: angle += 2*np.pi
+                if angle > np.pi:
+                    angle -= 2 * np.pi
+                elif angle < -np.pi:
+                    angle += 2 * np.pi
                 
                 action[3:6] = axis_robot * angle * self.rot_scale
 
@@ -211,6 +211,8 @@ class Args:
     rot_sensitivity: float = 10.0
 
 def main(args: Args):
+    import maniskill_myws.tasks  # noqa: F401
+
     output_dir = f"{args.record_dir}/{args.env_id}/teleop/"
     os.makedirs(output_dir, exist_ok=True)
 
