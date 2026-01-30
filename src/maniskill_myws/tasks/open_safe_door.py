@@ -96,14 +96,14 @@ class OpenSafeDoorEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at([-0.55, 0.0, 0.45], [0.0, 0.0, 0.15])
+        pose = sapien_utils.look_at([-0.55, 0.0, 1.0], [0.0, 0.0, 0.2])
         return [
             CameraConfig("base_camera", pose=pose, width=128, height=128, fov=np.pi / 2)
         ]
 
     @property
     def _default_human_render_camera_configs(self):
-        pose = sapien_utils.look_at([0.7, 0.6, 0.9], [0.0, 0.0, 0.2])
+        pose = sapien_utils.look_at([-0.55, 0.0, 1.0], [0.0, 0.0, 0.2])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1)
 
     def _load_agent(self, options: dict):
