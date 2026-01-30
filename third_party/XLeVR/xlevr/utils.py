@@ -28,13 +28,13 @@ def generate_ssl_certificates(cert_path: str = "cert.pem", key_path: str = "key.
     
     try:
         # Generate self-signed certificate using openssl
-        cmd = [
-            "openssl", "req", "-x509", "-newkey", "rsa:2048",
-            "-keyout", key_path,
-            "-out", cert_path,
-            "-sha256", "-days", "365", "-nodes",
-            "-subj", "/C=US/ST=Test/L=Test/O=Test/OU=Test/CN=localhost"
-        ]
+        # cmd = [
+        #     "openssl", "req", "-x509", "-newkey", "rsa:2048",
+        #     "-keyout", key_path,
+        #     "-out", cert_path,
+        #     "-sha256", "-days", "365", "-nodes",
+        #     "-subj", "/C=US/ST=Test/L=Test/O=Test/OU=Test/CN=localhost"
+        # ]
         
         #result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
