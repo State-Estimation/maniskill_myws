@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!--
+  Solar Panel: single-link rigid body (static fixture on table).
+
+  Geometry (in local frame, origin = base bottom center at table surface z=0):
+    Base  : cylinder radius=0.04, height=0.10, center at z=0.05
+            top of base at z=0.10
+    Panel : flat box 0.30 × 0.20 × 0.012 (x × y × thickness)
+            center at z = 0.10 + 0.006 = 0.106
+            top surface at z = 0.112
+
+  Placement in _initialize_episode:
+    panel_p[:, 2] = 0.0  → base bottom sits flush on table surface.
+
+  Contact reference (used in Python):
+    PANEL_TOP_Z_OFFSET = 0.112   (from origin to top surface)
+    PANEL_HALF_X       = 0.15    (half width)
+    PANEL_HALF_Y       = 0.10    (half depth)
+-->
+<robot name="solar_panel">
+  <link name="base_link">
+    <inertial>
+      <!-- Combined CoM: 0.8 kg cylinder at z=0.05 + 0.2 kg plate at z=0.106 → z≈0.061 -->
+      <origin xyz="0 0 0.061" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia ixx="4.0e-03" ixy="0" ixz="0"
+               iyy="5.0e-03" iyz="0"
+               izz="3.0e-03"/>
+    </inertial>
+
+    <!-- Cylindrical base -->
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.10"/>
+      </geometry>
+      <material name="base_gray">
+        <color rgba="0.35 0.35 0.35 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.10"/>
+      </geometry>
+    </collision>
+
+    <!-- Solar panel plate (flat, no tilt for clean contact geometry) -->
+    <visual>
+      <origin xyz="0 0 0.106" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.20 0.012"/>
+      </geometry>
+      <material name="panel_blue">
+        <color rgba="0.05 0.10 0.35 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.106" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.20 0.012"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>

@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<!--
+  Brush: single-link rigid body so ManiSkill loads it as an Actor (graspable).
+
+  Geometry (in local frame, origin = handle center):
+    Handle : cylinder radius=0.012, length=0.20, aligned along x-axis
+             extends x ∈ [-0.10, 0.10]
+    Head   : flat box 0.05 × 0.08 × 0.02 (x × y × z), center at x=0.125
+             extends x ∈ [0.10, 0.15]
+
+  Resting pose on table (z=0):
+    Lay the handle flat → origin z = 0.012 (= cylinder radius).
+    Head bottom z = 0.012 - 0.010 = 0.002 > 0  ✓
+
+  Grasp point: Panda TCP approaches handle center at local (0, 0, 0).
+-->
+<robot name="brush">
+  <link name="base_link">
+    <inertial>
+      <!-- Combined CoM: 0.10 kg handle at x=0 + 0.05 kg head at x=0.125 → x≈0.042 -->
+      <origin xyz="0.042 0 0" rpy="0 0 0"/>
+      <mass value="0.15"/>
+      <!-- ixx: mostly brush-head contribution (y,z extents) -->
+      <!-- iyy/izz: long in x → dominated by parallel-axis term -->
+      <inertia ixx="3.6e-05" ixy="0" ixz="0"
+               iyy="8.7e-04" iyz="0"
+               izz="8.9e-04"/>
+    </inertial>
+
+    <!-- Handle: cylinder along x-axis (rpy 90° around y rotates z-axis to x-axis) -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.20"/>
+      </geometry>
+      <material name="handle_brown">
+        <color rgba="0.45 0.28 0.12 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.20"/>
+      </geometry>
+    </collision>
+
+    <!-- Brush head: flat box at +x end -->
+    <visual>
+      <origin xyz="0.125 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.08 0.02"/>
+      </geometry>
+      <material name="head_dark">
+        <color rgba="0.25 0.25 0.25 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.125 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.08 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>

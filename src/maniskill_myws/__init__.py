@@ -17,5 +17,6 @@ def register() -> None:
     from .tasks import turn_globe_valve as _turn_globe_valve  # noqa: F401
     from .tasks import open_safe_door as _open_safe_door  # noqa: F401
     from .tasks import stack_cube_v2 as _stack_cube_v2  # noqa: F401
+    from .tasks import brush_solar_panel as _brush_solar_panel  # noqa: F401
 
 

@@ -1,101 +1,152 @@
 <?xml version="1.0"?>
 <robot name="safety_hook">
 
-  <!-- ===================== -->
-  <!-- base link (carabiner frame) -->
-  <!-- ===================== -->
+  <!--
+  Safety-hook (carabiner-style) URDF.
+  Overall dimensions (world frame, when hanging on a rod):
+    Width  (X): ~0.070 m
+    Thick  (Y): ~0.024 m
+    Height (Z): ~0.150 m
+
+  The base link origin is placed at the BOTTOM of the frame (z=0 = bottom of hook).
+  The hinge point for the gate is at approximately (0.030, 0, 0.140) in the base frame.
+
+  Mesh scale: 1.0 (meshes are already in meters at correct size).
+  -->
+
+  <!-- =====================================================
+       base link: the D-shaped frame (static half)
+       ===================================================== -->
   <link name="base">
-    <!-- Inertial: ~0.25kg metal hook -->
     <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.25"/>
-      <!-- Rough inertia for a ~0.12x0.06x0.02m body (conservative, stable) -->
-      <inertia ixx="0.00012" ixy="0" ixz="0"
-               iyy="0.00055" iyz="0"
-               izz="0.00060"/>
+      <origin xyz="-0.005 0 0.075" rpy="0 0 0"/>
+      <mass value="0.30"/>
+      <!-- Rough inertia for a 70x24x150mm metal body at 0.30 kg -->
+      <inertia ixx="0.000600" ixy="0" ixz="0"
+               iyy="0.000660" iyz="0"
+               izz="0.000110"/>
     </inertial>
 
-    <!-- Visual mesh -->
+    <!-- Visual: D-frame mesh (actual-size, no scale) -->
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <!-- Carabiner-like frame -->
-        <!-- Scale to target ~150mm height (original ~96mm => 150/96 = 1.5625) -->
-        <mesh filename="package://meshes/frame.obj" scale="1.5625 1.5625 1.5625"/>
+        <mesh filename="package://meshes/frame.obj" scale="1.0 1.0 1.0"/>
       </geometry>
-      <material name="gray">
-        <color rgba="0.65 0.65 0.68 1.0"/>
+      <material name="aluminum">
+        <color rgba="0.70 0.70 0.73 1.0"/>
       </material>
     </visual>
 
-    <!-- Collision: use simple primitives for stability.
-         You can delete these and use a simplified convex mesh later if you prefer. -->
-    <!-- Main bar (grasp region) -->
+    <!-- Collision: 5 primitive boxes matching the 6 mesh boxes.
+         We merge the left spine + top + bottom into 3 boxes,
+         plus the hinge block and nose block (both already box-shaped).
+         The right arc (Box F) is merged into the hinge/nose coverage. -->
+
+    <!-- Left spine: x[-0.030,-0.010], y[-0.010,0.010], z[0.000,0.150] -->
     <collision>
-      <origin xyz="-0.03125 0 0.015625" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.09375 0.03125 0.03125"/>
-      </geometry>
+      <origin xyz="-0.020 0 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.020 0.020 0.150"/></geometry>
     </collision>
 
-    <!-- Hook head block -->
+    <!-- Top bar: x[-0.030,0.025], y[-0.010,0.010], z[0.130,0.150] -->
     <collision>
-      <origin xyz="0.046875 0 0.0234375" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.078125 0.046875 0.046875"/>
-      </geometry>
+      <origin xyz="-0.0025 0 0.140" rpy="0 0 0"/>
+      <geometry><box size="0.055 0.020 0.020"/></geometry>
+    </collision>
+
+    <!-- Bottom bar: x[-0.030,0.025], y[-0.010,0.010], z[0.000,0.020] -->
+    <collision>
+      <origin xyz="-0.0025 0 0.010" rpy="0 0 0"/>
+      <geometry><box size="0.055 0.020 0.020"/></geometry>
+    </collision>
+
+    <!-- Hinge block (top-right): x[0.020,0.040], y[-0.012,0.012], z[0.114,0.150] -->
+    <collision>
+      <origin xyz="0.030 0 0.132" rpy="0 0 0"/>
+      <geometry><box size="0.020 0.024 0.036"/></geometry>
+    </collision>
+
+    <!-- Nose block (bottom-right): x[0.020,0.040], y[-0.012,0.012], z[0.000,0.024] -->
+    <collision>
+      <origin xyz="0.030 0 0.012" rpy="0 0 0"/>
+      <geometry><box size="0.020 0.024 0.024"/></geometry>
+    </collision>
+
+    <!-- Right arc fill: x[0.020,0.036], y[-0.010,0.010], z[0.035,0.115] -->
+    <collision>
+      <origin xyz="0.028 0 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.016 0.020 0.080"/></geometry>
     </collision>
   </link>
 
-  <!-- ================= -->
-  <!-- gate (the clasp)  -->
-  <!-- ================= -->
+  <!-- =====================================================
+       gate link: the screw-gate / clasp (rotates about hinge)
+       Gate local frame: origin = hinge point.
+       At q=0 (closed): gate tip is at z=-0.130, resting in nose.
+       Opens by rotating about Y-axis (positive angle = opens outward in +X dir).
+       ===================================================== -->
   <link name="gate">
     <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.05"/>
-      <inertia ixx="0.00001" ixy="0" ixz="0"
-               iyy="0.00003" iyz="0"
-               izz="0.00003"/>
+      <!-- Gate COM: roughly -0.055 below hinge in gate local Z -->
+      <origin xyz="0 0 -0.055" rpy="0 0 0"/>
+      <mass value="0.04"/>
+      <inertia ixx="0.000030" ixy="0" ixz="0"
+               iyy="0.000030" iyz="0"
+               izz="0.000002"/>
     </inertial>
 
     <visual>
-      <!-- Gate mesh origin is at hinge; extends downward in -Z -->
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://meshes/gate.obj" scale="1.5625 1.5625 1.5625"/>
+        <mesh filename="package://meshes/gate.obj" scale="1.0 1.0 1.0"/>
       </geometry>
-      <material name="dark">
-        <color rgba="0.25 0.25 0.28 1.0"/>
+      <material name="dark_aluminum">
+        <color rgba="0.30 0.30 0.33 1.0"/>
       </material>
     </visual>
 
-    <!-- Collision: approximate the gate rod -->
+    <!-- Collision: 3 boxes matching gate mesh.
+         All in gate local frame (hinge at origin, gate extends in -Z). -->
+
+    <!-- Main rod: centre z=-0.065 -->
     <collision>
-      <geometry>
-        <box size="0.0125 0.01875 0.09375"/>
-      </geometry>
+      <origin xyz="0 0 -0.065" rpy="0 0 0"/>
+      <geometry><box size="0.012 0.016 0.130"/></geometry>
+    </collision>
+
+    <!-- Locking collar: centre z=-0.020 -->
+    <collision>
+      <origin xyz="0 0 -0.020" rpy="0 0 0"/>
+      <geometry><box size="0.020 0.022 0.036"/></geometry>
+    </collision>
+
+    <!-- Tip block: centre z=-0.122 -->
+    <collision>
+      <origin xyz="0 0 -0.122" rpy="0 0 0"/>
+      <geometry><box size="0.014 0.018 0.020"/></geometry>
     </collision>
   </link>
 
-  <!-- ===================================== -->
-  <!-- Hinge joint: gate opens/closes (1DOF) -->
-  <!-- Closed position = 0 rad -->
-  <!-- Opens to ~70 degrees -->
-  <!-- ===================================== -->
+  <!-- =====================================================
+       gate_hinge joint
+       Hinge is at the top-right of the frame.
+       In base frame: (0.030, 0, 0.140).
+       Axis: Y (gate swings outward in the XZ plane).
+       Closed position: q = 0 (gate tip in nose, gap ~1 mm).
+       Max open: ~70 deg = 1.222 rad.
+
+       Spring: damping=0.08 Nm·s/rad gives soft-close feel.
+               friction=0.05 Nm holds gate in place without external force.
+       Equivalent torsion spring: 0.8 Nm/rad (gate_return_stiffness set in env).
+       ===================================================== -->
   <joint name="gate_hinge" type="revolute">
     <parent link="base"/>
     <child link="gate"/>
-
-    <!-- Hinge location (top-right of the frame). Gate mesh hinge is at its local origin. -->
-    <origin xyz="0.046875 0.0 0.1328125" rpy="0 0 0"/>
-
-    <!-- Axis: Y (open out of the carabiner plane) -->
+    <origin xyz="0.030 0.000 0.140" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-
-    <limit lower="0.0" upper="1.22" effort="2.0" velocity="6.0"/>
-    <!-- Damping/friction help stability and “soft close feel” -->
-    <dynamics damping="0.05" friction="0.02"/>
+    <limit lower="0.0" upper="1.222" effort="5.0" velocity="8.0"/>
+    <dynamics damping="0.08" friction="0.05"/>
   </joint>
 
 </robot>
