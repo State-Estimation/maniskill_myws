@@ -13,6 +13,7 @@ authors = [{ name = "bitqjy" }]
 
 # Keep core deps light; in local-source workflows ManiSkill/SAPIEN/PyTorch are installed separately (conda / source).
 dependencies = [
+  "coacd>=1.0.7",
   "numpy>=1.23",
   "websockets>=16.0",
 ]

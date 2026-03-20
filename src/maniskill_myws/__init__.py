@@ -17,5 +17,8 @@ def register() -> None:
     from .tasks import turn_globe_valve as _turn_globe_valve  # noqa: F401
     from .tasks import open_safe_door as _open_safe_door  # noqa: F401
     from .tasks import stack_cube_v2 as _stack_cube_v2  # noqa: F401
+    from .tasks import sweep_solar_panel as __sweep_solar_panel
+    from .tasks import open_safe_door2 as __open_safe_door2
+    from .tasks import take_safety_hook as __take_safety_hook
 
 
