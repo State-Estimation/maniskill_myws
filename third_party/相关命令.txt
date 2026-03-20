@@ -8,5 +8,6 @@ uv run python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_traject
   --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/hdf5-trajectory/TurnGlobeValve-v1/teleop/trajectory.h5 \
   --obs-mode rgb \
   --target-control-mode pd_ee_delta_pose \
-  --save-traj \
-  --render-mode sensors
+  --save-video \
+  --use_env_states \
+  --shader "rt" \

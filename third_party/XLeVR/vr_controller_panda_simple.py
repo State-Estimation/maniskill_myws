@@ -7,6 +7,7 @@ Logic: Calculate (Current_VR - Last_VR) * Transform_Matrix -> Action
 import os
 import sys
 import threading
+import time
 import numpy as np
 import gymnasium as gym
 import asyncio
@@ -14,7 +15,7 @@ import tyro
 from dataclasses import dataclass
 from typing import Annotated
 import transforms3d.quaternions as tf_quat
-
+from xlevr.inputs.vr_ws_server2 import ControlGoal
 # =========================
 # Path Setup
 # =========================
@@ -30,6 +31,7 @@ setup_xlevr_environment()
 from mani_skill.utils.wrappers.record import RecordEpisode
 from mani_skill.utils.structs import SimConfig
 import maniskill_myws.tasks
+from mani_skill.utils.structs.pose import Pose
 
 # =========================
 # Thread Safe Buffer & VR Thread
@@ -72,6 +74,20 @@ class VRInputThread(threading.Thread):
         except Exception as e:
             print(f"[VR Thread] Error: {e}")
 
+
+def process_vr_quat(goal):
+    """提取并统一 VR 四元数顺序为 [w, x, y, z]"""
+    if not goal.metadata or "quaternion" not in goal.metadata:
+        return np.array([1, 0, 0, 0])
+        
+    q_raw = goal.metadata["quaternion"]
+    if isinstance(q_raw, dict):
+        return np.array([q_raw['w'], q_raw['x'], q_raw['y'], q_raw['z']])
+    else:
+            # 假设列表是 [x, y, z, w]
+        return np.array([q_raw[3], q_raw[0], q_raw[1], q_raw[2]])
+
+
 # =========================
 # Controller Class (Relative Logic)
 # =========================
@@ -100,20 +116,12 @@ class VRPlannerController:
             [ 0,  1,  0]   # VR z -> Robot ? (Result Z row) -> takes VR y (+1) -> +Z
         ])
         # 注意：上面的矩阵是将 VR 的 (x,y,z) 向量左乘，得到 Robot 的 (x,y,z)
+        self.quat_transform_1 = np.array([0.707, -0.707, 0, 0])
+        self.quat_transform_2 = np.array([0.707, 0, 0.707, 0])
+        self.quat_transform_3 = np.array([0.707, 0, 0, -0.707])
+        self.quat_transform_4 = np.array([0.707, 0, -0.707, 0])
 
-    def _process_vr_quat(self, goal):
-        """提取并统一 VR 四元数顺序为 [w, x, y, z]"""
-        if not goal.metadata or "quaternion" not in goal.metadata:
-            return np.array([1, 0, 0, 0])
-        
-        q_raw = goal.metadata["quaternion"]
-        if isinstance(q_raw, dict):
-            return np.array([q_raw['w'], q_raw['x'], q_raw['y'], q_raw['z']])
-        else:
-            # 假设列表是 [x, y, z, w]
-            return np.array([q_raw[3], q_raw[0], q_raw[1], q_raw[2]])
-
-    def step(self, latest_goal_obj):
+    def step(self, latest_goal_obj:ControlGoal):
         """
         计算控制量
         Return: action (np.array 7 dim) or None
@@ -129,11 +137,19 @@ class VRPlannerController:
 
         # 1. 提取当前数据
         curr_pos = np.array(latest_goal_obj.target_position)
-        curr_rot = self._process_vr_quat(latest_goal_obj)
+        curr_quat = process_vr_quat(latest_goal_obj)
+
+        # 1.5 用 quat_transform_1 和 quat_transform_2 依次作用于 curr_quat，得到 bot_quat
+        # bot_quat = tf_quat.qmult(self.quat_transform_2, tf_quat.qmult(self.quat_transform_1, curr_quat))
+        # bot_quat = tf_quat.qmult(self.quat_transform_4, tf_quat.qmult(self.quat_transform_3, bot_quat))
+        # bot_quat = bot_quat / np.linalg.norm(bot_quat)
         
         # 2. 检查离合器 (Squeeze)
         # 如果 squeeze 为 True，表示用户想控制；否则只更新 gripper
-        is_squeezing = latest_goal_obj.metadata.get("squeeze", False) # 默认 False 安全
+        if latest_goal_obj.metadata == None:
+            is_squeezing = False
+        else:
+            is_squeezing = latest_goal_obj.metadata.get("squeeze", False) # 默认 False 安全
 
         # Gripper Logic (-1 closed, 1 open)
         if latest_goal_obj.gripper_closed:
@@ -145,7 +161,7 @@ class VRPlannerController:
                 # 刚按下的一瞬间 (Rising Edge)
                 # 重置上一帧数据为当前帧，防止跳变
                 self.prev_vr_pos = curr_pos
-                self.prev_vr_rot = curr_rot
+                self.prev_vr_rot = curr_quat
                 self.clutch_engaged = True
                 # 本帧不移动
             else:
@@ -156,17 +172,14 @@ class VRPlannerController:
                 d_pos_vr = curr_pos - self.prev_vr_pos
                 
                 # 2. 映射到 Robot Base 系
-                # d_pos_robot = Matrix @ d_pos_vr
                 d_pos_robot = self.coord_transform @ d_pos_vr
                 
                 # 3. 缩放
                 action[:3] = d_pos_robot * self.pos_scale
 
                 # --- Rotation Delta ---
-                # 1. 计算四元数差分: Q_diff = Q_current * Q_prev^-1
-                # transforms3d 的 qmult 是 (q1, q2) -> q1 * q2
-                # 这里的旋转差代表：在全局坐标系下，发生了一个什么样的旋转
-                q_diff = tf_quat.qmult(curr_rot, tf_quat.qinverse(self.prev_vr_rot))
+                # 1. 计算四元数差分: Q_diff = Q_current_robot * Q_prev_robot^-1
+                q_diff = tf_quat.qmult(curr_quat, tf_quat.qinverse(self.prev_vr_rot))
                 
                 # 2. 转为 Axis-Angle
                 axis, angle = tf_quat.quat2axangle(q_diff)
@@ -185,7 +198,7 @@ class VRPlannerController:
 
                 # --- Update History ---
                 self.prev_vr_pos = curr_pos
-                self.prev_vr_rot = curr_rot
+                self.prev_vr_rot = curr_quat
 
         else:
             # 松开状态
@@ -201,7 +214,7 @@ class VRPlannerController:
 # =========================
 @dataclass
 class Args:
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TurnGlobeValve-v1"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "StackCube-v2"
     obs_mode: str = "rgb"
     robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam"
     record_dir: str = "hdf5-trajectory"
@@ -263,6 +276,7 @@ def main(args: Args):
 
     num_trajs = 0
     action_cmd = None
+    last_mark_print = time.time()
     
     while True:
         print(f"Collecting trajectory {num_trajs+1}, seed={seed}")
@@ -270,12 +284,52 @@ def main(args: Args):
             # 1. 获取 VR 数据
             goal = latest_goal.get()
             
-            # 2. 控制器计算
-            action = controller.step(goal)
-            
+            # 如果没有观测到 VR 目标，保持动作不变、跳过 mark 赋值
+            if goal is None:
+                action = np.zeros(7)
+                action[6] = 1.0
+            else:
+                # 2. 控制器计算
+                action = controller.step(goal)
+
+                ################################################################
+                # 调试：根据 coord_transform 映射 VR 位置、姿态到 mark
+                coord_transform = np.array([
+                    [ 0,  0, -1],  # VR x -> Robot ? (Result X row) -> takes VR z (-1) -> +X
+                    [-1,  0,  0],  # VR y -> Robot ? (Result Y row) -> takes VR x (-1) -> -Y
+                    [ 0,  1,  0]   # VR z -> Robot ? (Result Z row) -> takes VR y (+1) -> +Z
+                ])
+                curr_pos = np.array(goal.target_position)
+                curr_quat = process_vr_quat(goal)
+
+                # 根据映射关系 x-real->vr-x, z-real->vr-y, y-real-neg->vr-z，先构造 real->vr 旋转
+                # 这等价于绕 x 轴 -90° 的旋转四元数
+                real_to_vr_quat = np.array([0.70710678, -0.70710678, 0.0, 0.0])
+                vr_quat = tf_quat.qmult(real_to_vr_quat, curr_quat)
+                vr_quat = vr_quat / np.linalg.norm(vr_quat)
+
+                env.base_env.mark.set_pose(Pose.create_from_pq(coord_transform @ curr_pos, curr_quat))
+                #################################################################
+
             # 3. 环境步进
             env.step(action)
+            
             env.base_env.render_human()
+
+            # 每秒刷新 5 次 mark 四元数
+            if time.time() - last_mark_print >= 1:
+                try:
+                    mstate = env.base_env.mark.get_state()
+                    if hasattr(mstate, "ndim") and mstate.ndim >= 2:
+                        mq = mstate[0, 3:7]
+                    else:
+                        mq = mstate[3:7]
+                    if hasattr(mq, "cpu"):
+                        mq = mq.cpu().numpy()
+                    print(f"[mark quat] {mq}")
+                except Exception as e:
+                    print(f"[mark quat] read failed: {e}")
+                last_mark_print = time.time()
             
             # 4. 键盘监听
             if viewer.window.key_press("q"):
@@ -283,9 +337,6 @@ def main(args: Args):
                 break
             elif viewer.window.key_press("s"):
                 action_cmd = "save"
-                break
-            elif viewer.window.key_press("r"):
-                action_cmd = "discard"
                 break
 
         if action_cmd == "quit":
@@ -295,9 +346,6 @@ def main(args: Args):
             num_trajs += 1
             seed += 1
             env.reset(seed=seed)             
-        elif action_cmd == "discard":
-            print("Discarding trajectory...")
-            env.reset(seed=seed, options=dict(save_trajectory=False))
 
     env.close()
     print(f"Saved {num_trajs} trajectories.")
