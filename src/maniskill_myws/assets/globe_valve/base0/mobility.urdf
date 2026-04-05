@@ -106,7 +106,91 @@
 		<collision>
 			<origin xyz="0 0 0" rpy="0 0 0"/>
 			<geometry>
-				<mesh filename="meshes/handwheel_ring.obj"/>
+				<mesh filename="meshes/handwheel_part_0.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_1.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_2.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_3.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_4.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_5.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_6.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_7.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_8.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_9.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_10.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_11.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_12.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_13.glb"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_part_14.glb"/>
 			</geometry>
 		</collision>
 		

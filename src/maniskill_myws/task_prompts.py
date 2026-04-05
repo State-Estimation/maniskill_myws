@@ -9,6 +9,7 @@ TASK_PROMPTS: dict[str, str] = {
     "StackCube-v2": "stack the red cube on the green cube",
     "BrushSolarPanel-v1": "use the brush to clean the solar panel",
     "OpenSafetyHook-v1": "open the safety hook and remove it from the rod",
+    "OpenSafeDoor-v2": "open the safe door with the handle",
 }
 
 
