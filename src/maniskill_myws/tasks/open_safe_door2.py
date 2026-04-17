@@ -67,7 +67,7 @@ class OpenSafeDoor2Env(BaseEnv):
         safe_spawn_half_size_y: float = 0.02,
         # Keep yaw noise smaller so the door is less likely to swing into the robot/table.
         safe_yaw_noise: float = np.pi / 20,
-        door_open_threshold: float = np.pi / 5,
+        door_open_threshold: float = np.pi / 6,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -87,9 +87,13 @@ class OpenSafeDoor2Env(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at([-0.55, 0.0, 0.45], [0.0, 0.0, 0.15])
+        # Match the render camera viewpoint so the full safe and handle workspace stay in frame.
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
+        #pose = sapien_utils.look_at([-0.55, 0.0, 0.45], [0.0, 0.0, 0.15])
+
         return [
-            CameraConfig("base_camera", pose=pose, width=128, height=128, fov=np.pi / 2)
+            #CameraConfig("base_camera", pose=pose, width=128, height=128, fov=np.pi / 2)
+            CameraConfig("base_camera", pose=pose, width=128, height=128, fov=1)
         ]
 
     @property
