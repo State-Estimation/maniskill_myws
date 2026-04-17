@@ -8,6 +8,6 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.450000
 d 1.000000
 illum 2
-map_Kd /home/firedust/Downloads/太阳能电池 新能源电池 太阳能板_爱给网_aigei_com/3D/solar_panels_roof_D.jpg
-map_Ks /home/firedust/Downloads/太阳能电池 新能源电池 太阳能板_爱给网_aigei_com/3D/solar_panels_roof_S.jpg
-map_Bump -bm 1.000000 /home/firedust/Downloads/太阳能电池 新能源电池 太阳能板_爱给网_aigei_com/3D/solar_panels_roof_N.jpg
+map_Kd solar_panels_roof_D.jpg
+map_Ks solar_panels_roof_S.jpg
+map_Bump -bm 1.000000 solar_panels_roof_N.jpg
