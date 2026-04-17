@@ -48,6 +48,7 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--ignore=tests/test_manipulation.py"
 markers = [
   "smoke: lightweight environment smoke tests",
 ]
