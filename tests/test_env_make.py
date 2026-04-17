@@ -15,8 +15,18 @@ def test_env_make_if_available():
     import maniskill_myws
 
     maniskill_myws.register()
-    env = gym.make("TurnGlobeValve-v1", obs_mode="state", reward_mode="none", render_mode=None)
+    try:
+        env = gym.make(
+            "TurnGlobeValve-v1",
+            obs_mode="state",
+            reward_mode="none",
+            render_mode=None,
+        )
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "supported physical device" in msg or "Rendering might be disabled" in msg:
+            pytest.skip(f"render device unavailable in this environment: {exc}")
+        raise
     env.reset(seed=0)
     env.close()
-
 

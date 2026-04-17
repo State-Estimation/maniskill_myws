@@ -89,12 +89,12 @@ class TurnGlobeValveEnv(BaseEnv):
         )
         with importlib_resources.as_file(base0_dir) as base0_path:
             urdf_path = base0_path / "mobility.urdf"
-            articulations, _ = loader.load_multiple(
+            self.valve: Articulation = loader.load(
                 str(urdf_path),
+                name="globe_valve",
+                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
                 package_dir=str(base0_path),
             )
-        assert len(articulations) == 1, "Expected exactly one articulation in the URDF"
-        self.valve: Articulation = articulations[0]
         self.handwheel_joint = self.valve.active_joints_map["handwheel_joint"]
 
         self._handwheel_qpos_prev = torch.zeros(self.num_envs, device=self.device)
@@ -168,5 +168,4 @@ class TurnGlobeValveEnv(BaseEnv):
 
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):
         return info["success"].to(torch.float32)
-
 

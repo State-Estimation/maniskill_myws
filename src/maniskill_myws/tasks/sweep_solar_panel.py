@@ -9,7 +9,6 @@ from mani_skill.envs.utils import randomization
 
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
-from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import SimConfig
 from mani_skill.utils.registration import register_env

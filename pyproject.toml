@@ -41,6 +41,13 @@ maniskill_myws = ["assets/**/*"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+exclude = [
+  "third_party",
+  "tests/test_manipulation.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "smoke: lightweight environment smoke tests",
+]
