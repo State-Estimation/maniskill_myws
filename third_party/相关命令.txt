@@ -12,3 +12,16 @@ uv run python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_traject
   --save-traj \
   --use_env_states \
   --shader "rt" \
+
+进入 merge 状态:
+git merge origin/main --no-commit --no-ff
+
+merge 之后，有些内容被删了，但想恢复成 merge 前:
+检查有没有冲突:
+git status
+手动恢复想保留的内容:
+git checkout HEAD -- 路径
+例如：git checkout HEAD -- src/maniskill_myws/assets/door/urdf/door.urdf
+
+git add .
+git commit -m "新的提交"
