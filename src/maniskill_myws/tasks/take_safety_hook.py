@@ -102,12 +102,12 @@ class TakeSafetyHookEnv(BaseEnv):
         )
         with importlib_resources.as_file(base0_dir) as base0_path:
             urdf_path = base0_path / "safety_hook.urdf"
-            articulations, _  = loader.load_multiple(
+            self.hook: Articulation = loader.load(
                 str(urdf_path),
+                name="safety_hook",
+                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
                 package_dir=str(base0_path),
             )
-        assert len(articulations) == 1, "URDF should only contain one articulation"
-        self.hook = articulations[0]
 
         self.gate_joint = self.hook.active_joints_map["joint_bar"]
         self.gate_joint.set_drive_properties(150.0, 15.0)

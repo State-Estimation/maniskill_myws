@@ -95,19 +95,26 @@ class SolarPanelStaticEnv(BaseEnv):
             self.brush = None
             brush_loader = self.scene.create_urdf_loader()
             brush_loader.fix_root_link = False
+            brush_loader.name = "brush"
 
             base_dir = importlib_resources.files("maniskill_myws").joinpath("assets/brush/urdf")
             with importlib_resources.as_file(base_dir) as brush_dir:
                 urdf_path = brush_dir / "brush.urdf"
-                # brush.urdf 可能只含一个单链接刚体（Actor），load() 会报错，改用 load_multiple()
-                articulations, actors = brush_loader.load_multiple(
-                    str(urdf_path),
-                    package_dir=str(brush_dir),
-                )
+                # ManiSkill's URDFLoader wraps parse() and load(), but its inherited
+                # load_multiple() is incompatible with the wrapped parse() return type.
+                parsed = brush_loader.parse(str(urdf_path), package_dir=str(brush_dir))
+                articulations = parsed["articulation_builders"]
+                actors = parsed["actor_builders"]
+                scene_idxs = torch.arange(self.num_envs, dtype=torch.int32)
                 if len(articulations) > 0:
-                    self.brush = articulations[0]
+                    builder = articulations[0]
+                    builder.set_scene_idxs(scene_idxs)
+                    builder.disable_self_collisions = brush_loader.disable_self_collisions
+                    self.brush = builder.build()
                 elif len(actors) > 0:
-                    self.brush = actors[0]
+                    builder = actors[0]
+                    builder.set_scene_idxs(scene_idxs)
+                    self.brush = builder.build(builder.name)
                 else:
                     raise RuntimeError("No object loaded from brush URDF")
 
