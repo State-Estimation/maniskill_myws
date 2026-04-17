@@ -4,18 +4,6 @@
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
   name="door">
-  <material name="green">
-    <color rgba="0.1 1 0 1" />
-  </material>
-  <material name="red">
-    <color rgba="1 0.1 0 1" />
-  </material>
-  <material name="purple">
-    <color rgba="0.1 0.1 1 1" />
-  </material>
-  <material name="sky_blue">
-    <color rgba="0.53 0.81 0.92 1" />
-  </material>
   <link
     name="base_link">
     <inertial>
@@ -41,10 +29,12 @@
           filename="package://door/meshes/base_link.STL" />
       </geometry>
       <material
-        name="purple">
+        name="C-steel">
+        <color
+          rgba="0.52941 0.54902 0.54902 1" />
       </material>
     </visual>
-    <!-- <collision>
+    <collision>
       <origin
         xyz="0 0 0"
         rpy="0 0 0" />
@@ -79,24 +69,24 @@
         <mesh
           filename="package://door/meshes/door_base/part_10.glb" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <link
     name="door_Link">
     <inertial>
-      <origin
-        xyz="9.04E-06 0.50224 0.5"
-        rpy="0 0 0" />
-      <mass
-        value="5" />
+    <origin
+      xyz="9.04E-06 0.50224 0.5"
+      rpy="0 0 0" />
+    <mass
+        value="458.1" />
       <inertia
-        ixx="7.5458"
-        ixy="-0.00011503"
-        ixz="-0.56168E-16"
-        iyy="3.8234"
-        iyz="-0.64251E-16"
-        izz="3.7497" />
+        ixx="75.458"
+        ixy="-0.0011503"
+        ixz="-5.6168E-16"
+        iyy="38.234"
+        iyz="-6.4251E-16"
+        izz="37.497" />
     </inertial>
     <visual>
       <origin
@@ -107,7 +97,9 @@
           filename="package://door/meshes/door_Link.STL" />
       </geometry>
       <material
-        name="sky_blue">
+        name="">
+        <color
+          rgba="0.52941 0.54902 0.54902 1" />
       </material>
     </visual>
     <collision>
@@ -187,11 +179,11 @@
   <link
     name="bar_Link">
     <inertial>
-      <origin
-        xyz="-0.082609 -0.039327 3.4694E-18"
-        rpy="0 0 0" />
-      <mass
-        value="0.3" />
+    <origin
+      xyz="-0.082609 -0.039327 3.4694E-18"
+      rpy="0 0 0" />
+    <mass
+        value="2.7177" />
       <inertia
         ixx="0.0080132"
         ixy="-0.0034619"
@@ -208,7 +200,11 @@
         <mesh
           filename="package://door/meshes/bar_Link.STL" />
       </geometry>
-      <material name="green" />
+      <material
+        name="">
+        <color
+          rgba="0.52941 0.54902 0.54902 1" />
+      </material>
     </visual>
     <collision>
       <origin
@@ -251,8 +247,8 @@
     <axis
       xyz="-1 0 0" />
     <limit
-      lower="0"
-      upper="0.05"
+      lower="-1.5"
+      upper="0"
       effort="0"
       velocity="0" />
   </joint>
@@ -280,7 +276,11 @@
         <mesh
           filename="package://door/meshes/button_Link.STL" />
       </geometry>
-      <material name="red" />
+      <material
+        name="">
+        <color
+          rgba="0.52941 0.54902 0.54902 1" />
+      </material>
     </visual>
     <collision>
       <origin
