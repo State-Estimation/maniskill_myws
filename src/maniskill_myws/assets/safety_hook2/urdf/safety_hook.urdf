@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="safety_hook2">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.038059 3.6627E-07 0.030909"
+        rpy="0 0 0" />
+      <mass
+        value="0.091619" />
+      <inertia
+        ixx="0.00015175"
+        ixy="-1.4217E-09"
+        ixz="3.0858E-05"
+        iyy="0.00020773"
+        iyz="1.3869E-09"
+        izz="5.6672E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.65098 0.61961 0.58824 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_0.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_1.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_2.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_3.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_4.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_5.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_6.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_7.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_base_part_8.glb" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="bar_Link">
+    <inertial>
+      <origin
+        xyz="-0.0036666 -6.5586E-10 0.031652"
+        rpy="0 0 0" />
+      <mass
+        value="0.03889" />
+      <inertia
+        ixx="1.4254E-05"
+        ixy="-9.6088E-14"
+        ixz="3.1646E-06"
+        iyy="1.494E-05"
+        iyz="7.2379E-13"
+        izz="1.23E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/bar_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.65098 0.61961 0.58824 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_bar_part_0.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_bar_part_1.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_bar_part_2.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://safety_hook2/meshes/hook_bar_part_3.glb" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_bar"
+    type="revolute">
+    <origin
+      xyz="0 0 0"
+      rpy="0 -0.02 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="bar_Link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.77"
+      upper="-0.02"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

@@ -169,4 +169,3 @@ class TurnGlobeValveEnv(BaseEnv):
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):
         return info["success"].to(torch.float32)
 
-

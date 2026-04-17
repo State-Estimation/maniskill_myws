@@ -31,21 +31,37 @@ def main() -> None:
     p.add_argument("--num-seeds", type=int, default=10, help="Number of seeds to test")
     p.add_argument("--start-seed", type=int, default=0, help="Starting seed value")
     p.add_argument("--save-videos", action="store_true", help="Save videos for all runs")
+    p.add_argument("--save-images", action="store_true", help="Save per-step PNGs for all runs")
     p.add_argument("--save-trajectories", action="store_true", help="Save trajectory.npz for all runs")
     
     # Common inference args
     p.add_argument("--server", type=str, required=True, help="e.g. ws://127.0.0.1:8000")
     p.add_argument("--env-id", type=str, default="StackCube-v2")
     p.add_argument("--obs-mode", type=str, default="rgb")
+    p.add_argument("--reward-mode", type=str, default="none")
     p.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
     p.add_argument("--render-mode", type=str, default=None, help="e.g. 'human' for visualization")
-    p.add_argument("--max-steps", type=int, default=200)
+    p.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Maximum rollout steps. Defaults to the environment's max_episode_steps.",
+    )
     
     # Observation keys
     p.add_argument("--image-key", type=str, default="sensor_data/base_camera/rgb")
     p.add_argument("--wrist-image-key", type=str, default="sensor_data/hand_camera/rgb")
     p.add_argument("--state-keys", type=str, nargs="+", default=None)
     p.add_argument("--prompt", type=str, default=None)
+    p.add_argument("--image-every", type=int, default=1, help="Save images/video frames every N env steps")
+    p.add_argument("--video-fps", type=int, default=10, help="FPS for saved mp4 videos")
+    p.add_argument(
+        "--video-views",
+        type=str,
+        default="base",
+        choices=["base", "wrist", "both"],
+        help="Which camera views to write into mp4(s).",
+    )
     
     # Output
     p.add_argument("--output-root", type=str, default="outputs/pi0_multi_seed")
@@ -84,13 +100,15 @@ def main() -> None:
             "--server", args.server,
             "--env-id", args.env_id,
             "--obs-mode", args.obs_mode,
+            "--reward-mode", args.reward_mode,
             "--control-mode", args.control_mode,
             "--seed", str(seed),
-            "--max-steps", str(args.max_steps),
             "--image-key", args.image_key,
             "--wrist-image-key", args.wrist_image_key,
-            "--output-root", str(seed_output.parent),
+            "--output-root", str(seed_output),
         ]
+        if args.max_steps is not None:
+            cmd += ["--max-steps", str(args.max_steps)]
         
         if args.state_keys:
             cmd += ["--state-keys"] + args.state_keys
@@ -102,7 +120,15 @@ def main() -> None:
             cmd += ["--render-mode", args.render_mode]
         
         if args.save_videos:
-            cmd += ["--save-video"]
+            cmd += [
+                "--save-video",
+                "--video-fps", str(args.video_fps),
+                "--video-views", args.video_views,
+                "--image-every", str(args.image_every),
+            ]
+
+        if args.save_images:
+            cmd += ["--save-images", "--image-every", str(args.image_every)]
         
         if args.save_trajectories:
             cmd += ["--save-trajectory"]
@@ -145,7 +171,7 @@ def main() -> None:
             results.append({
                 "seed": seed,
                 "success": False,
-                "steps": args.max_steps,
+                "steps": 0,
             })
         except Exception as e:
             print(f"✗ Error: {e}")

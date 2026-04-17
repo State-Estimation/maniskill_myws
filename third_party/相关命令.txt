@@ -1,13 +1,14 @@
 启动VR遥操：
-python ./third_party/XLeVR/vr_controller_panda_simple.py \
+uv run python ./third_party/XLeVR/vr_controller_panda_simple.py \
   -e TurnGlobeValve-v1 \
   --record-dir /home/firedust/mimic/maniskill_myws/data/hdf5-trajectory
 
 重放轨迹：
-python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
-  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/demos2/OpenSafeDoor-v2/teleop/trajectory.h5 \
+uv run python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
+  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/hdf5-trajectory/TurnGlobeValve-v1/teleop/trajectory.h5 \
   --obs-mode rgb \
   --target-control-mode pd_ee_delta_pose \
   --save-video \
   --save-traj \
-  --use-first-env-state
+  --use_env_states \
+  --shader "rt" \

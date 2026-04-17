@@ -171,6 +171,10 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/serve.py \
   --port 8000
 ```
 
+对于你自己微调出来的 checkpoint，`serve.py` 会优先从 checkpoint 下的
+`assets/*/norm_stats.json` 自动推断训练时的 `repo_id/asset_id`，从而保证评测时读取的 norm 统计与训练时一致。
+只有当 checkpoint 里存在多份资产，或者你想手动覆盖时，才需要额外传 `--repo-id` 或 `--norm-stats`。
+
 ### 5.2 客户端（你的 myws / ManiSkill 环境）
 用 ManiSkill 侧脚本连接服务端（只需 `ws://host:port`）。
 注意：`run_pi0_remote.py` **默认不落盘**，只有显式 `--save-images/--save-video/--save-trajectory` 才会保存输出。
@@ -192,4 +196,30 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/run_pi0_remote.py \
 - 客户端侧会把图片 **resize_with_pad 到 224x224 并转 uint8**，减少带宽/延迟（与 openpi 推荐一致）
 - server 会返回 action chunk；客户端会 open-loop 执行 chunk 里的逐步 action
 
+### 5.3 Multi-seed 评测与实时渲染
 
+如果你想一次评测多个 seed，可以用：
+
+```bash
+conda activate mani_skill
+
+python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/run_pi0_remote_multi_seed.py \
+  --env-id OpenSafeDoor-v2 \
+  --server ws://<server_ip>:8000 \
+  --num-seeds 20 \
+  --start-seed 0 \
+  --render-mode human \
+  --save-videos \
+  --video-views both
+```
+
+说明：
+- `--render-mode human`：打开 ManiSkill 实时渲染窗口
+- `--save-videos`：为每个 seed 保存 mp4
+- `--video-views base|wrist|both`：选择输出 `base_camera`、`hand_camera` 或两者都保存
+- `--image-key` / `--wrist-image-key`：覆盖默认观测键；默认分别是 `sensor_data/base_camera/rgb` 和 `sensor_data/hand_camera/rgb`
+- `--image-every`：每隔多少步保存一帧（同时影响图片和视频采样密度）
+
+注意：
+- `video-views` 只决定保存哪个观测流，不会改变任务里相机本身的位姿
+- 如果你修改了任务中的 `base_camera`，那么 `base` 视频会自动使用新的相机视角
