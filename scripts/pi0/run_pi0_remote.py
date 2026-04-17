@@ -82,7 +82,12 @@ def main() -> None:
         help="Optional ManiSkill render_mode (e.g. 'human'). Requires a display if using 'human'.",
     )
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--max-steps", type=int, default=200)
+    p.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Maximum rollout steps. Defaults to the environment's max_episode_steps.",
+    )
 
     # Where to read images/state from the ManiSkill obs dict (keypaths from inspect_obs output).
     p.add_argument("--image-key", type=str, default="sensor_data/base_camera/rgb")
@@ -156,6 +161,13 @@ def main() -> None:
         render_mode=args.render_mode,
     )
     obs, info = env.reset(seed=args.seed)
+    max_steps = args.max_steps
+    if max_steps is None:
+        max_steps = getattr(env.unwrapped, "max_episode_steps", None)
+    if max_steps is None and getattr(env, "spec", None) is not None:
+        max_steps = getattr(env.spec, "max_episode_steps", None)
+    if max_steps is None:
+        max_steps = 200
 
     prompt = args.prompt
     if prompt is None:
@@ -192,7 +204,7 @@ def main() -> None:
     )
 
     try:
-        for step in range(args.max_steps):
+        for step in range(max_steps):
             # Optional realtime rendering (some ManiSkill setups require calling render() explicitly).
             if args.render_mode is not None:
                 try:
@@ -252,5 +264,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 

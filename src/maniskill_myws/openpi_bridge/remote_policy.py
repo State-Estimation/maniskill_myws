@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -28,9 +29,11 @@ class RemoteWebsocketChunkPolicy:
             from openpi_client import image_tools
             from openpi_client import websocket_client_policy
         except Exception as e:  # pragma: no cover
+            repo_root = Path(__file__).resolve().parents[3]
+            client_pkg = repo_root / "third_party" / "openpi" / "packages" / "openpi-client"
             raise RuntimeError(
                 "Remote policy requires openpi-client. Install with: "
-                "`pip install -e /home/sisyphus/Projects/openpi/packages/openpi-client`"
+                f"`pip install -e {client_pkg}`"
             ) from e
 
         self._image_tools = image_tools
@@ -65,5 +68,4 @@ class RemoteWebsocketChunkPolicy:
             for a in chunk:
                 self._queue.append(a)
         return self._queue.popleft()
-
 
