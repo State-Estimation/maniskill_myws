@@ -10,7 +10,7 @@ from mani_skill.envs.utils import randomization
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
-from mani_skill.utils.structs.types import SimConfig
+from mani_skill.utils.structs.types import SimConfig, SceneConfig
 from mani_skill.utils.registration import register_env
 import importlib.resources as importlib_resources
 import torch
@@ -44,7 +44,7 @@ class SolarPanelStaticEnv(BaseEnv):
 
     @property
     def _default_sim_config(self):
-        return SimConfig()
+        return SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
 
     @property
     def _default_sensor_configs(self):

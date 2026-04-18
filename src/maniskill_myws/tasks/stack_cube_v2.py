@@ -10,6 +10,7 @@ from maniskill_myws.task_prompts import TASK_PROMPTS
 import sapien
 import torch
 from mani_skill.utils.structs.pose import Pose
+from mani_skill.utils.structs.types import SimConfig, SceneConfig
 
 @register_env("StackCube-v2", max_episode_steps=200)
 class StackCubeV2Env(StackCubeEnv):
@@ -35,6 +36,10 @@ class StackCubeV2Env(StackCubeEnv):
             CameraConfig("base_camera", pose=base_pose, width=128, height=128, fov=np.pi / 2),
             CameraConfig("side_camera", pose=side_pose, width=128, height=128, fov=np.pi / 2),
         ]
+
+    @property
+    def _default_sim_config(self):
+        return SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
 
     @property
     def _default_human_render_camera_configs(self):

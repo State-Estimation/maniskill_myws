@@ -4,14 +4,16 @@ uv run python ./third_party/XLeVR/vr_controller_panda_simple.py \
   --record-dir /home/firedust/mimic/maniskill_myws/data/hdf5-trajectory
 
 重放轨迹：
-uv run python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
-  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/hdf5-trajectory/TurnGlobeValve-v1/teleop/trajectory.h5 \
+针对Riverdust的环境：先
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+再
+python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
+  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/demos2/OpenSafeDoor-v22/teleop/trajectory.h5 \
   --obs-mode rgb \
   --target-control-mode pd_ee_delta_pose \
   --save-video \
   --save-traj \
-  --use_env_states \
-  --shader "rt" \
+  --use-first-env-state
 
 进入 merge 状态:
 git merge origin/main --no-commit --no-ff
@@ -25,3 +27,12 @@ git checkout HEAD -- 路径
 
 git add .
 git commit -m "新的提交"
+
+查看numpy版本：python -c "import numpy as np; print(np.__version__)"
+
+python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
+  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/demos2/OpenSafeDoor-v22/teleop/trajectory.h5 \
+  --obs-mode rgb \
+  --target-control-mode pd_ee_delta_pose \
+  --save-traj \
+  --use_env_states

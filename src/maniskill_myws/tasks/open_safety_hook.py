@@ -18,7 +18,7 @@ from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
 from mani_skill.utils.structs.actor import Actor
 from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.pose import Pose
-from mani_skill.utils.structs.types import SimConfig
+from mani_skill.utils.structs.types import SimConfig, SceneConfig
 from maniskill_myws.task_prompts import TASK_PROMPTS
 
 # ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ class OpenSafetyHookEnv(BaseEnv):
 
     @property
     def _default_sim_config(self):
-        return SimConfig()
+        return SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
 
     @property
     def _default_sensor_configs(self):

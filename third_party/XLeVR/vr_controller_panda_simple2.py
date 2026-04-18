@@ -341,8 +341,8 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
         elif action_cmd == "save":
             num_trajs += 1
             seed += 1
-            env.base_env.sim_config = SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
-            env.reset(seed=seed,options={"reconfigure": True})
+            #env.base_env.sim_config = SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
+            env.reset(seed=seed)
             env.base_env.render_human()
             
     env.close()
@@ -351,8 +351,7 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
 
 def main(args: Args):
     env = create_environment(args)
-    env.base_env.sim_config = SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
-    env.reset(seed=0,options={"reconfigure": True})
+    env.reset(seed=0)
     
     latest_goal, vr_thread = start_vr_thread()
 
