@@ -93,21 +93,29 @@ class TakeSafetyHookEnv(BaseEnv):
         self.scene_builder.build()
 
         loader = self.scene.create_urdf_loader()
+        loader.name = "safety_hook"
         loader.fix_root_link = False
         loader.disable_self_collisions = True
-        
+
         # Use workspace-shipped asset (works even when ManiSkill is installed via pip).
         base0_dir = importlib_resources.files("maniskill_myws").joinpath(
             "assets/safety_hook2/urdf"
         )
         with importlib_resources.as_file(base0_dir) as base0_path:
             urdf_path = base0_path / "safety_hook.urdf"
-            self.hook: Articulation = loader.load(
-                str(urdf_path),
-                name="safety_hook",
-                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
-                package_dir=str(base0_path),
-            )
+            parsed = loader.parse(str(urdf_path), package_dir=str(base0_path))
+            articulation_builders = parsed["articulation_builders"]
+            actor_builders = parsed["actor_builders"]
+            if len(articulation_builders) != 1 or actor_builders:
+                raise RuntimeError(
+                    "Expected safety_hook.urdf to contain exactly one articulation and no loose actors."
+                )
+            hook_builder = articulation_builders[0]
+            hook_builder.set_scene_idxs(torch.arange(self.num_envs, dtype=torch.int32))
+            hook_builder.disable_self_collisions = loader.disable_self_collisions
+            # Keep the temporary build pose close to the later randomized spawn to avoid startup collisions.
+            hook_builder.initial_pose = sapien.Pose(p=[0.2, 0.0, 0.2])
+            self.hook: Articulation = hook_builder.build()
 
         self.gate_joint = self.hook.active_joints_map["joint_bar"]
         self.gate_joint.set_drive_properties(150.0, 15.0)
@@ -116,6 +124,13 @@ class TakeSafetyHookEnv(BaseEnv):
 
         # beam: thin horizontal cylinder in mid-air, static/kinematic
         beam_builder = self.scene.create_actor_builder()
+        beam_builder.initial_pose = sapien.Pose(
+            p=[
+                float(sum(self.beam_x_range) / 2.0),
+                float(sum(self.beam_y_range) / 2.0),
+                float(sum(self.beam_z_range) / 2.0),
+            ]
+        )
         beam_builder.add_cylinder_collision(
             pose=sapien.Pose(),
             radius=self.beam_radius,
@@ -188,7 +203,7 @@ class TakeSafetyHookEnv(BaseEnv):
             "success": success,
             "progress": progress,
             "hook_qpos": gate_qpos,
-            "beam_pose": self.beam.pose if hasattr(self.beam, "pose") else None,
+            "beam_pose": self.beam.pose.raw_pose,
         }
 
     def _get_obs_extra(self, info: dict):
@@ -199,7 +214,7 @@ class TakeSafetyHookEnv(BaseEnv):
         )
         if "state" in self.obs_mode:
             obs["hook_pose"] = self.hook.pose.raw_pose
-            obs["beam_pose"] = self.beam.pose if hasattr(self.beam, "pose") else None
+            obs["beam_pose"] = self.beam.pose.raw_pose
             obs["hook_qpos"] = self.gate_joint.qpos
         return obs
 
