@@ -17,9 +17,9 @@ Example:
   python scripts/convert_traj_to_lerobot.py \\
     --h5-glob "data/demos/**/*.h5" \\
     --repo-id "local/maniskill_turn_globe_valve" \\
-    --image-key "obs/sensors/base_camera/rgb" \\
-    --wrist-image-key "obs/sensors/wrist_camera/rgb" \\
-    --state-keys "obs/extra/tcp_pose" \\
+    --image-key "obs/sensor_data/base_camera/rgb" \\
+    --wrist-image-key "obs/sensor_data/hand_camera/rgb" \\
+    --state-keys "obs/agent/qpos" "obs/agent/qvel" "obs/extra/tcp_pose" \\
     --actions-key "actions" \\
     --task-from env_default
 """
@@ -362,5 +362,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

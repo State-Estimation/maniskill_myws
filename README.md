@@ -8,8 +8,8 @@
 2) 安装本工作区：
 
 ```bash
-cd /your/path/to/maniskill_myws
-pip install -e .[runtime,dev]
+cd /path/to/maniskill_myws
+python -m pip install -e .[runtime,dev]
 ```
 
 ## 环境注册与创建
@@ -30,7 +30,12 @@ obs, info = env.reset(seed=0)
 
 已注册环境：
 - `TurnGlobeValve-v1`
-- `OpenSafeDoor-v1`（asset `101593`，旋钮>90° 且门>60°）
+- `OpenSafeDoor-v1`
+- `OpenSafeDoor-v2`
+- `BrushSolarPanel-v1`
+- `OpenSafetyHook-v1`
+- `TakeSafetyHook-v1`
+- `SolarPanelStatic-v1`
 - `StackCube-v2`（VLA 标准采集传感器）
 
 ## 常用脚本
@@ -54,9 +59,14 @@ python scripts/run_maniskill_demo.py mani_skill.examples.demo_manual_control_con
 
 4) **录制随机轨迹（用于 imitation pipeline 调试）**
 ```bash
-python scripts/record_random.py --env-id TurnGlobeValve-v1 --out-dir data/demos/debug --num-episodes 5
+python scripts/record_random.py \
+  --env-id TurnGlobeValve-v1 \
+  --out-dir data/demos/debug \
+  --num-episodes 5 \
+  --obs-mode rgb
 ```
-输出为 ManiSkill 原生 `.h5 + .json`。
+输出为 ManiSkill 原生 `.h5 + .json`。如果你准备用 `scripts/convert_traj_to_lerobot.py`
+直接转 LeRobot/openpi 数据，建议采集时显式使用 `--obs-mode rgb`，或者先用 replay 工具补齐 `sensor_data/*` 图像。
 
 ## openpi(π0/π0.5) 集成（Submodule 方案）
 
@@ -65,7 +75,7 @@ python scripts/record_random.py --env-id TurnGlobeValve-v1 --out-dir data/demos/
 
 初始化子模块：
 ```bash
-cd /your/path/to/maniskill_myws
+cd /path/to/maniskill_myws
 git submodule update --init --recursive
 ```
 
@@ -75,21 +85,21 @@ git submodule update --init --recursive
 
 ### 训练端环境（openpi uv 环境）
 ```bash
-cd /your/path/to/maniskill_myws/third_party/openpi
+cd third_party/openpi
 uv sync
 ```
 
 ### 客户端环境（ManiSkill）
 ```bash
-pip install -e /your/path/to/maniskill_myws/third_party/openpi/packages/openpi-client
+python -m pip install -e third_party/openpi/packages/openpi-client
 ```
 
 ### 最小两进程流程（server + ManiSkill client）
 
 1) **启动 π0 服务端（openpi uv 环境）**
 ```bash
-cd /your/path/to/maniskill_myws/third_party/openpi
-uv run python /your/path/to/maniskill_myws/scripts/pi0/serve.py \
+cd third_party/openpi
+uv run python ../../scripts/pi0/serve.py \
   --config pi05_libero \
   --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
   --port 8000
@@ -101,7 +111,7 @@ uv run python /your/path/to/maniskill_myws/scripts/pi0/serve.py \
 
 2) **启动 ManiSkill 客户端（mani_skill 环境）**
 ```bash
-python /your/path/to/maniskill_myws/scripts/pi0/run_pi0_remote.py \
+python scripts/pi0/run_pi0_remote.py \
   --server ws://127.0.0.1:8000 \
   --env-id TurnGlobeValve-v1 \
   --save-images
@@ -109,7 +119,7 @@ python /your/path/to/maniskill_myws/scripts/pi0/run_pi0_remote.py \
 
 3) **多 seed 评测（可选）**
 ```bash
-python /your/path/to/maniskill_myws/scripts/pi0/run_pi0_remote_multi_seed.py \
+python scripts/pi0/run_pi0_remote_multi_seed.py \
   --server ws://127.0.0.1:8000 \
   --env-id OpenSafeDoor-v2 \
   --num-seeds 20 \

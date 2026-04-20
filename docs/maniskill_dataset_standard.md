@@ -2,6 +2,8 @@
 
 目标：让自定义任务的数据结构与 openpi/LIBERO 风格一致，便于统一转换与训练。
 
+本文默认你当前工作目录在仓库根目录 `maniskill_myws/`。
+
 ---
 
 ## A) 统一的观测与控制配置（采集/回放/rollout 都使用）
@@ -15,6 +17,7 @@
 **标准相机**
 - `base_camera`: 环境静态相机（默认 128x128）
 - `hand_camera`: 来自 `panda_wristcam` 的腕部相机
+- 某些任务还会提供额外环境相机（例如 `StackCube-v2` 的 `side_camera`），但当前转换脚本和远程推理默认使用的仍然是 `base_camera + hand_camera`
 
 **推荐状态向量（统一维度）**
 仅使用所有任务通用的 proprio 信息：
@@ -43,7 +46,7 @@
 ## C) StackCube-v2 任务（标准化示例）
 
 本仓库提供 `StackCube-v2`，用于标准化流程验证：
-- **base + side** 两路环境相机（可选；训练时只用 base）
+- **base + side** 两路环境相机（当前桥接/训练默认仍只使用 `base_camera`）
 - **默认 panda_wristcam**（wrist 图像自动存在）
 - 任务 prompt 推荐：`"stack the red cube on the green cube"`
 
@@ -78,7 +81,7 @@ python -m mani_skill.trajectory.replay_trajectory \
 ## E) 转换成 LeRobot dataset（统一格式）
 
 ```bash
-python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py \
+python scripts/convert_traj_to_lerobot.py \
   --h5-dir "/path/to/replayed_h5_dir" \
   --repo-id "local/maniskill_stackcube_v2" \
   --robot-type "panda" \
@@ -95,4 +98,4 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py
 ## F) 训练提示
 
 - openpi 训练配置中设置 `prompt_from_task=True`
-- 优先在 `pi0_base` 上微调，以验证完整管线
+- 当前仓库默认推荐先用 `pi05_libero` 验证完整管线；如果显存紧张，再考虑 `pi0_libero_low_mem_finetune`

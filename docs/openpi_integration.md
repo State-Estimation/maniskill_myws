@@ -2,6 +2,8 @@
 
 目标：用 ManiSkill 作为 **rollout 平台 + 数据来源**（RecordEpisode `.h5`），把数据转成 openpi 训练使用的 **LeRobot dataset**，并在 ManiSkill 环境中直接加载/运行 π0 策略。
 
+本文默认你当前工作目录在仓库根目录 `maniskill_myws/`。
+
 本方案强调三点：
 - **可复现**：明确依赖与版本固定方式
 - **低耦合**：`openpi` 保持外部依赖（可 editable 开发），ManiSkill 适配代码只放在 `maniskill_myws`
@@ -31,18 +33,17 @@
 conda activate mani_skill
 
 # 1) 安装你的 workspace
-pip install -e /home/sisyphus/Projects/maniskill_myws[runtime,dev]
+python -m pip install -e .[runtime,dev]
 
 # 2) 安装 openpi-client（客户端只需要它，不需要装 openpi/JAX）
-pip install -e /home/sisyphus/Projects/maniskill_myws/third_party/openpi/packages/openpi-client
+python -m pip install -e third_party/openpi/packages/openpi-client
 ```
 
-> 推理/训练端使用 openpi 的 uv 环境：`cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi && uv sync`
+> 推理/训练端使用 openpi 的 uv 环境：`cd third_party/openpi && uv sync`
 
 ### OpenPI 子模块（可复现）
 仓库内已通过 Git submodule 固定 openpi 版本：
 ```bash
-cd /home/sisyphus/Projects/maniskill_myws
 git submodule update --init --recursive
 ```
 
@@ -66,8 +67,8 @@ openpi 的 LIBERO 转换脚本定义的 LeRobot dataset 特征（我们建议保
 ### 3.1 先 inspect 一下你的 `.h5`
 ```bash
 conda activate mani_skill
-python /home/sisyphus/Projects/maniskill_myws/scripts/inspect_traj_h5.py \
-  --h5 /home/sisyphus/Projects/maniskill_myws/data/demos/debug/20260116_103802.h5
+python scripts/inspect_traj_h5.py \
+  --h5 data/demos/debug/example.h5
 ```
 
 ### 3.2 转换为 LeRobot dataset（本地）
@@ -77,19 +78,20 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/inspect_traj_h5.py \
 ```bash
 conda activate mani_skill
 
-python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py \
-  --h5-dir "/home/sisyphus/Projects/maniskill_myws/data/demos/multitask_h5" \
+python scripts/convert_traj_to_lerobot.py \
+  --h5-dir "data/demos/multitask_h5" \
   --repo-id "local/maniskill_myws_multitask" \
   --robot-type "panda" \
   --fps 10 \
-  --image-key "obs/sensors/base_camera/rgb" \
-  --wrist-image-key "obs/sensors/wrist_camera/rgb" \
-  --state-keys "obs/extra/tcp_pose" "obs/agent/qpos" \
+  --image-key "obs/sensor_data/base_camera/rgb" \
+  --wrist-image-key "obs/sensor_data/hand_camera/rgb" \
+  --state-keys "obs/agent/qpos" "obs/agent/qvel" "obs/extra/tcp_pose" \
   --actions-key "actions" \
   --task-from env_default
 ```
 
-> 说明：键名只是示例，真正的键要以你的 obs_mode/RecordEpisode 输出为准。
+> 说明：上面的键名对应当前仓库任务在 `obs_mode=rgb` 时最常见的 RecordEpisode 输出。
+> 如果你的 `.h5` 是用 `record_random.py` 默认的 `--obs-mode state_dict` 采的，里面通常不会有 `sensor_data/*/rgb`，需要先 replay 成 `rgb`，或者重新采集。
 
 ---
 
@@ -102,27 +104,27 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py
 我们提供了一个脚本 `scripts/pi0/finetune_maniskill.py`，用于在 openpi(uv) 环境中对 ManiSkill 的 LeRobot 数据集进行微调：
 
 ```bash
-cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
-uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_maniskill.py \
-  --openpi-root /home/sisyphus/Projects/maniskill_myws/third_party/openpi \
+cd third_party/openpi
+uv run python ../../scripts/pi0/finetune_maniskill.py \
+  --openpi-root . \
   --config pi05_libero \
   --repo-id local/maniskill_myws_multitask \
   --exp-name ms_pi05_v1 \
-  --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \
-  --checkpoint-base-dir /home/sisyphus/Projects/maniskill_myws/checkpoints_openpi \
+  --assets-base-dir ../../assets_openpi \
+  --checkpoint-base-dir ../../checkpoints_openpi \
   --overwrite
 ```
 
 如果你只想先计算 norm stats（不训练）：
 ```bash
-cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
-uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_maniskill.py \
-  --openpi-root /home/sisyphus/Projects/maniskill_myws/third_party/openpi \
+cd third_party/openpi
+uv run python ../../scripts/pi0/finetune_maniskill.py \
+  --openpi-root . \
   --config pi05_libero \
   --repo-id local/maniskill_myws_multitask \
   --exp-name ms_pi05_v1 \
-  --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \
-  --checkpoint-base-dir /home/sisyphus/Projects/maniskill_myws/checkpoints_openpi \
+  --assets-base-dir ../../assets_openpi \
+  --checkpoint-base-dir ../../checkpoints_openpi \
   --only-norm-stats
 ```
 
@@ -132,14 +134,14 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_manisk
 在“任务表现”之前，先确认**数据格式/管线完全正确**。推荐在 openpi(uv) 环境中做离线验证：
 
 ```bash
-cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
-uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/validate_lerobot_dataset.py \
-  --openpi-root /home/sisyphus/Projects/maniskill_myws/third_party/openpi \
+cd third_party/openpi
+uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
+  --openpi-root . \
   --config pi05_libero \
   --repo-id local/maniskill_myws_multitask \
-  --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \
+  --assets-base-dir ../../assets_openpi \
   --num-batches 1 \
-  --save-images /home/sisyphus/Projects/maniskill_myws/outputs/validate_samples
+  --save-images ../../outputs/validate_samples
 ```
 
 你应该看到：
@@ -157,15 +159,15 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/validate_lerobo
 推荐直接用 openpi 的默认 LIBERO expert（π0.5-LIBERO）：
 
 ```bash
-cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
+cd third_party/openpi
 uv run python scripts/serve_policy.py --env LIBERO --port 8000
 ```
 
 或者用 myws 的 wrapper（支持在 import JAX 前设置 `XLA_FLAGS`）：
 
 ```bash
-cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
-uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/serve.py \
+cd third_party/openpi
+uv run python ../../scripts/pi0/serve.py \
   --config pi05_libero \
   --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
   --port 8000
@@ -182,13 +184,13 @@ uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/serve.py \
 ```bash
 conda activate mani_skill
 
-python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/run_pi0_remote.py \
+python scripts/pi0/run_pi0_remote.py \
   --env-id TurnGlobeValve-v1 \
   --server ws://<server_ip>:8000 \
   --obs-mode rgb \
   --image-key sensor_data/base_camera/rgb \
   --wrist-image-key sensor_data/hand_camera/rgb \
-  --state-key extra/tcp_pose \
+  --state-keys agent/qpos agent/qvel extra/tcp_pose \
   --render-mode human
 ```
 
@@ -203,7 +205,7 @@ python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/run_pi0_remote.py \
 ```bash
 conda activate mani_skill
 
-python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/run_pi0_remote_multi_seed.py \
+python scripts/pi0/run_pi0_remote_multi_seed.py \
   --env-id OpenSafeDoor-v2 \
   --server ws://<server_ip>:8000 \
   --num-seeds 20 \

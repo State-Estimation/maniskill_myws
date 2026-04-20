@@ -6,18 +6,18 @@ This script is intended to be run in the **openpi uv environment** (training env
 
 Prereqs:
 1) Convert your ManiSkill trajectories (.h5) to a LeRobot dataset (repo_id), e.g. with:
-   python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py ...
+   python scripts/convert_traj_to_lerobot.py ...
 2) Make sure you can load the LeRobot dataset via that repo_id from within your openpi env.
 
 Usage (recommended, inside openpi repo):
-  cd /home/sisyphus/Projects/openpi
-  uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_maniskill.py \\
-    --openpi-root /home/sisyphus/Projects/openpi \\
+  cd third_party/openpi
+  uv run python ../../scripts/pi0/finetune_maniskill.py \\
+    --openpi-root . \\
     --config pi05_libero \\
     --repo-id local/maniskill_myws_turn_globe_valve \\
     --exp-name ms_pi05_v1 \\
-    --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \\
-    --checkpoint-base-dir /home/sisyphus/Projects/maniskill_myws/checkpoints_openpi \\
+    --assets-base-dir ../../assets_openpi \\
+    --checkpoint-base-dir ../../checkpoints_openpi \\
     --overwrite
 
 Notes:
@@ -229,4 +229,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -7,7 +7,7 @@ This is the maniskill_myws analogue of:
 
 Workflow:
 1) Start server (separate env/machine):
-   python scripts/pi0/serve.py --checkpoint gs://openpi-assets/checkpoints/pi05_libero --config pi05_libero --port 8000
+   cd third_party/openpi && uv run python ../../scripts/pi0/serve.py --checkpoint gs://openpi-assets/checkpoints/pi05_libero --config pi05_libero --port 8000
 2) Run this client (mani_skill env):
    python scripts/pi0/run_pi0_remote.py --server ws://127.0.0.1:8000 --env-id TurnGlobeValve-v1 --obs-mode rgb ...
 """
@@ -264,4 +264,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
