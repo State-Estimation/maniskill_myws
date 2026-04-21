@@ -46,6 +46,8 @@ class TurnGlobeValveEnv(BaseEnv):
         valve_yaw_noise: float = np.pi / 6,
         valve_init_qpos_noise: float = np.pi,
         success_threshold: float = np.pi,
+        handwheel_friction: float = 1.0,
+        handwheel_damping: float = 10.0,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -53,6 +55,8 @@ class TurnGlobeValveEnv(BaseEnv):
         self.valve_yaw_noise = valve_yaw_noise
         self.valve_init_qpos_noise = valve_init_qpos_noise
         self.success_threshold = float(success_threshold)
+        self.handwheel_friction = float(handwheel_friction)
+        self.handwheel_damping = float(handwheel_damping)
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
@@ -61,9 +65,10 @@ class TurnGlobeValveEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at([-0.45, 0.0, 0.35], [0.0, 0.0, 0.10])
+        # Raise the base view and tilt it down a bit so the valve occupies more pixels.
+        pose = sapien_utils.look_at([0.45, 0.35, 0.65], [0.02, 0.0, 0.08])
         return [
-            CameraConfig("base_camera", pose=pose, width=128, height=128, fov=np.pi / 2)
+                    CameraConfig("base_camera", pose=pose, width=128, height=128, fov=0.9)
         ]
 
     @property
@@ -100,10 +105,10 @@ class TurnGlobeValveEnv(BaseEnv):
         self._handwheel_qpos_prev = torch.zeros(self.num_envs, device=self.device)
         self._handwheel_cumulative = torch.zeros(self.num_envs, device=self.device)
 
-        # Make the joint easier to turn.
-        for j in self.valve.active_joints:
-            j.set_friction(0.01)
-            j.set_drive_properties(0.0, 0.0)
+        # Add passive joint friction so the handwheel does not coast unrealistically.
+        self.handwheel_joint.set_friction(self.handwheel_friction)
+        self.handwheel_joint.set_drive_properties(0.0, self.handwheel_damping)
+        self.handwheel_joint.set_drive_velocity_target(0.0)
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         with torch.device(self.device):
@@ -136,6 +141,7 @@ class TurnGlobeValveEnv(BaseEnv):
                 device=self.device,
             )
             self.valve.set_qpos(qpos0)
+            self.valve.set_qvel(torch.zeros_like(qpos0))
 
             self._handwheel_qpos_prev[env_idx] = qpos0[:, 0]
             self._handwheel_cumulative[env_idx] = 0.0
@@ -168,4 +174,3 @@ class TurnGlobeValveEnv(BaseEnv):
 
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):
         return info["success"].to(torch.float32)
-
