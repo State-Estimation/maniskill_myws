@@ -144,12 +144,20 @@ class OpenSafeDoorEnv(BaseEnv):
         asset_dir = importlib_resources.files("maniskill_myws").joinpath("assets/101593")
         with importlib_resources.as_file(asset_dir) as asset_path:
             urdf_path = asset_path / "mobility.urdf"
-            self.safe: Articulation = loader.load(
-                str(urdf_path),
-                name="safe_101593",
-                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
-                package_dir=str(asset_path),
+            loader.name = "safe_101593"
+            parsed = loader.parse(str(urdf_path), package_dir=str(asset_path))
+            articulation_builders = parsed["articulation_builders"]
+            actor_builders = parsed["actor_builders"]
+            if len(articulation_builders) != 1 or actor_builders:
+                raise RuntimeError(
+                    "Expected safe URDF to contain exactly one articulation and no loose actors."
+                )
+            safe_builder = articulation_builders[0]
+            safe_builder.set_scene_idxs(torch.arange(self.num_envs, dtype=torch.int32))
+            safe_builder.initial_pose = sapien.Pose(
+                p=[self.safe_spawn_center_x, self.safe_spawn_center_y, self._safe_table_z]
             )
+            self.safe: Articulation = safe_builder.build()
 
         self.door_joint = self.safe.active_joints_map[self.DOOR_JOINT_NAME]
         self.handle_joint = self.safe.active_joints_map[self.HANDLE_JOINT_NAME]
@@ -235,5 +243,4 @@ class OpenSafeDoorEnv(BaseEnv):
 
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):
         return info["success"].to(torch.float32)
-
 

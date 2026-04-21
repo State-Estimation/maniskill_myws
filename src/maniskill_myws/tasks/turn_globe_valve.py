@@ -94,12 +94,18 @@ class TurnGlobeValveEnv(BaseEnv):
         )
         with importlib_resources.as_file(base0_dir) as base0_path:
             urdf_path = base0_path / "mobility.urdf"
-            self.valve: Articulation = loader.load(
-                str(urdf_path),
-                name="globe_valve",
-                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
-                package_dir=str(base0_path),
-            )
+            loader.name = "globe_valve"
+            parsed = loader.parse(str(urdf_path), package_dir=str(base0_path))
+            articulation_builders = parsed["articulation_builders"]
+            actor_builders = parsed["actor_builders"]
+            if len(articulation_builders) != 1 or actor_builders:
+                raise RuntimeError(
+                    "Expected globe valve URDF to contain exactly one articulation and no loose actors."
+                )
+            valve_builder = articulation_builders[0]
+            valve_builder.set_scene_idxs(torch.arange(self.num_envs, dtype=torch.int32))
+            valve_builder.initial_pose = sapien.Pose(p=[0.0, 0.0, 1e-3])
+            self.valve: Articulation = valve_builder.build()
         self.handwheel_joint = self.valve.active_joints_map["handwheel_joint"]
 
         self._handwheel_qpos_prev = torch.zeros(self.num_envs, device=self.device)

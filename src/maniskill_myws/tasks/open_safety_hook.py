@@ -219,12 +219,21 @@ class OpenSafetyHookEnv(BaseEnv):
         )
         with importlib_resources.as_file(asset_dir) as asset_path:
             urdf_path = asset_path / "mobility.urdf"
-            self.hook: Articulation = loader.load(
-                str(urdf_path),
-                name="safety_hook",
-                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
-                package_dir=str(asset_path),
+            loader.name = "safety_hook"
+            parsed = loader.parse(str(urdf_path), package_dir=str(asset_path))
+            articulation_builders = parsed["articulation_builders"]
+            actor_builders = parsed["actor_builders"]
+            if len(articulation_builders) != 1 or actor_builders:
+                raise RuntimeError(
+                    "Expected safety hook URDF to contain exactly one articulation and no loose actors."
+                )
+            hook_builder = articulation_builders[0]
+            hook_builder.set_scene_idxs(torch.arange(self.num_envs, dtype=torch.int32))
+            hook_origin_z = self.rod_center_z - self.HOOK_HEIGHT + self.ROD_RADIUS + 0.001
+            hook_builder.initial_pose = sapien.Pose(
+                p=[self.rod_center_x - 0.010, self.rod_center_y, hook_origin_z]
             )
+            self.hook: Articulation = hook_builder.build()
 
         self.gate_joint = self.hook.active_joints_map["gate_hinge"]
 

@@ -109,10 +109,18 @@ class SolarPanelStaticEnv(BaseEnv):
                     builder = articulations[0]
                     builder.set_scene_idxs(scene_idxs)
                     builder.disable_self_collisions = brush_loader.disable_self_collisions
+                    builder.initial_pose = sapien.Pose(
+                        p=[0.1, 0.0, self.brush_z],
+                        q=[1, 0, 0, 0],
+                    )
                     self.brush = builder.build()
                 elif len(actors) > 0:
                     builder = actors[0]
                     builder.set_scene_idxs(scene_idxs)
+                    builder.initial_pose = sapien.Pose(
+                        p=[0.1, 0.0, self.brush_z],
+                        q=[1, 0, 0, 0],
+                    )
                     self.brush = builder.build(builder.name)
                 else:
                     raise RuntimeError("No object loaded from brush URDF")
