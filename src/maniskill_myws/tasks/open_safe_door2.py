@@ -60,7 +60,7 @@ class OpenSafeDoor2Env(BaseEnv):
         # # Keep yaw noise smaller so the door is less likely to swing into the robot/table.
         # safe_yaw_noise: float = np.pi / 30,
         # door_open_threshold: float = np.pi / 6,
-        safe_spawn_center_x: float = 0.1,
+        safe_spawn_center_x: float = 0.15,
         safe_spawn_center_y: float = -0.65,
         safe_spawn_half_size_x: float = 0.03,
         safe_spawn_half_size_y: float = 0.02,
