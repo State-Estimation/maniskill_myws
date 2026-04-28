@@ -140,5 +140,7 @@ python scripts/pi0/run_pi0_remote_multi_seed.py \
 - `.h5 -> LeRobot`：`scripts/convert_traj_to_lerobot.py`
 - 数据验证：`scripts/pi0/validate_lerobot_dataset.py`
 - 一键微调：`scripts/pi0/finetune_maniskill.py`
+- PLD 复现入口：`scripts/pld/train_residual_sac.py`、`scripts/pld/collect_hybrid_pld.py`
 
 > 这些脚本的完整参数与示例见 `docs/openpi_integration.md`。
+> PLD 的论文到代码映射和推荐命令见 `docs/pld_reproduction.md`。
