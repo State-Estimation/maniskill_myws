@@ -81,6 +81,32 @@ def main() -> None:
         default=None,
         help="Optional ManiSkill render_mode (e.g. 'human'). Requires a display if using 'human'.",
     )
+    p.add_argument(
+        "--visualize-tcp-path",
+        action="store_true",
+        help=(
+            "Draw the current action chunk in the realtime viewer. Markers are "
+            "hidden outside env.render() so policy camera observations stay clean."
+        ),
+    )
+    p.add_argument(
+        "--path-every",
+        type=int,
+        default=2,
+        help="Add one executed TCP path marker every N env steps when visualization is enabled.",
+    )
+    p.add_argument("--path-max-points", type=int, default=500)
+    p.add_argument("--path-radius", type=float, default=0.008)
+    p.add_argument("--tcp-pose-key", type=str, default="extra/tcp_pose")
+    p.add_argument("--base-chunk-max-actions", type=int, default=16)
+    p.add_argument(
+        "--base-chunk-position-scale",
+        type=float,
+        default=0.1,
+        help="Meters per normalized action unit when projecting chunk actions into TCP positions.",
+    )
+    p.add_argument("--base-path-color", type=str, default="0.05,0.35,1.0,1.0")
+    p.add_argument("--residual-path-color", type=str, default="1.0,0.28,0.02,1.0")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--max-steps",
@@ -141,6 +167,7 @@ def main() -> None:
     )
     from maniskill_myws.openpi_bridge.remote_policy import RemoteWebsocketChunkPolicy
     from maniskill_myws.openpi_bridge.keypath import get_by_path
+    from maniskill_myws.pld.path_visualizer import TCPPathVisualizer, parse_rgba
 
     maniskill_myws.register()
 
@@ -194,6 +221,18 @@ def main() -> None:
     policy = RemoteWebsocketChunkPolicy(server=args.server, obs_adapter=adapter, act_dim=7, resize=224)
     policy.reset()
 
+    path_visualizer = None
+    if args.visualize_tcp_path:
+        path_visualizer = TCPPathVisualizer(
+            env=env,
+            max_points=args.path_max_points,
+            radius=args.path_radius,
+            base_color=parse_rgba(args.base_path_color),
+            residual_color=parse_rgba(args.residual_path_color),
+            tcp_pose_key=args.tcp_pose_key,
+        )
+        path_visualizer.clear()
+
     traj_actions: list[np.ndarray] = []
     traj_tcp: list[np.ndarray] = []
 
@@ -205,12 +244,29 @@ def main() -> None:
 
     try:
         for step in range(max_steps):
-            # Optional realtime rendering (some ManiSkill setups require calling render() explicitly).
+            act = policy.act(obs)
+            traj_actions.append(np.asarray(act, dtype=np.float32))
+
+            if path_visualizer is not None:
+                path_visualizer.set_base_prediction_from_chunk(
+                    obs,
+                    policy.planned_chunk(),
+                    position_scale=args.base_chunk_position_scale,
+                    max_actions=args.base_chunk_max_actions,
+                )
+
+            # Optional realtime rendering. Path markers are only shown during
+            # render() so they do not contaminate policy observations.
             if args.render_mode is not None:
                 try:
+                    if path_visualizer is not None:
+                        path_visualizer.show_used()
                     env.render()
                 except Exception:
                     pass
+                finally:
+                    if path_visualizer is not None:
+                        path_visualizer.hide_used()
 
             # Save images from obs (client-side render) for quick visualization.
             if (args.save_images or video_writers) and (step % args.image_every == 0):
@@ -225,9 +281,6 @@ def main() -> None:
                 if "wrist" in video_writers:
                     video_writers["wrist"].append_data(wrist)
 
-            act = policy.act(obs)
-            traj_actions.append(np.asarray(act, dtype=np.float32))
-
             # Record tcp pose if present
             try:
                 tcp_arr = _as_numpy(get_by_path(obs, state_keys[0]))
@@ -238,6 +291,12 @@ def main() -> None:
                 pass
 
             obs, rew, terminated, truncated, info = env.step(act)
+            if (
+                path_visualizer is not None
+                and args.path_every > 0
+                and step % args.path_every == 0
+            ):
+                path_visualizer.add_from_obs(obs, "residual")
             if terminated or truncated:
                 break
     finally:

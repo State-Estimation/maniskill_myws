@@ -191,12 +191,14 @@ python scripts/pi0/run_pi0_remote.py \
   --image-key sensor_data/base_camera/rgb \
   --wrist-image-key sensor_data/hand_camera/rgb \
   --state-keys agent/qpos agent/qvel extra/tcp_pose \
-  --render-mode human
+  --render-mode human \
+  --visualize-tcp-path
 ```
 
 说明：
 - 客户端侧会把图片 **resize_with_pad 到 224x224 并转 uint8**，减少带宽/延迟（与 openpi 推荐一致）
 - server 会返回 action chunk；客户端会 open-loop 执行 chunk 里的逐步 action
+- `--visualize-tcp-path` 会在实时 viewer 中绘制当前 action chunk：蓝色是模型预测的未来 TCP chunk，橙色是实际执行后的 TCP 轨迹采样。marker 只在 `env.render()` 时显示，不会进入策略输入图像。
 
 ### 5.3 Multi-seed 评测与实时渲染
 
@@ -211,6 +213,9 @@ python scripts/pi0/run_pi0_remote_multi_seed.py \
   --num-seeds 20 \
   --start-seed 0 \
   --render-mode human \
+  --visualize-tcp-path \
+  --base-chunk-max-actions 16 \
+  --base-chunk-position-scale 0.1 \
   --save-videos \
   --video-views both
 ```
@@ -221,7 +226,10 @@ python scripts/pi0/run_pi0_remote_multi_seed.py \
 - `--video-views base|wrist|both`：选择输出 `base_camera`、`hand_camera` 或两者都保存
 - `--image-key` / `--wrist-image-key`：覆盖默认观测键；默认分别是 `sensor_data/base_camera/rgb` 和 `sensor_data/hand_camera/rgb`
 - `--image-every`：每隔多少步保存一帧（同时影响图片和视频采样密度）
+- `--base-chunk-max-actions` / `--base-chunk-position-scale`：控制蓝色 chunk 的长度和 action 到 TCP 位移的投影比例
+- `--base-path-color` / `--residual-path-color` / `--path-radius`：控制 viewer 中 marker 的颜色和大小
 
 注意：
 - `video-views` 只决定保存哪个观测流，不会改变任务里相机本身的位姿
 - 如果你修改了任务中的 `base_camera`，那么 `base` 视频会自动使用新的相机视角
+- chunk marker 为了避免影响视觉输入，只显示在实时 `render()` 窗口中；保存的 obs 视频默认保持干净
