@@ -13,21 +13,44 @@ class BasePolicy:
     def act(self, obs: dict) -> np.ndarray:
         raise NotImplementedError
 
+    def planned_chunk(self) -> np.ndarray | None:
+        return None
+
 
 @dataclass
 class ZeroBasePolicy(BasePolicy):
     action_dim: int
+    _last_action: np.ndarray | None = None
 
     def act(self, obs: dict) -> np.ndarray:
-        return np.zeros((self.action_dim,), dtype=np.float32)
+        self._last_action = np.zeros((self.action_dim,), dtype=np.float32)
+        return self._last_action
+
+    def reset(self) -> None:
+        self._last_action = None
+
+    def planned_chunk(self) -> np.ndarray | None:
+        if self._last_action is None:
+            return None
+        return self._last_action[None, :]
 
 
 @dataclass
 class RandomBasePolicy(BasePolicy):
     action_space: object
+    _last_action: np.ndarray | None = None
 
     def act(self, obs: dict) -> np.ndarray:
-        return np.asarray(self.action_space.sample(), dtype=np.float32).reshape(-1)
+        self._last_action = np.asarray(self.action_space.sample(), dtype=np.float32).reshape(-1)
+        return self._last_action
+
+    def reset(self) -> None:
+        self._last_action = None
+
+    def planned_chunk(self) -> np.ndarray | None:
+        if self._last_action is None:
+            return None
+        return self._last_action[None, :]
 
 
 class RemoteOpenPIBasePolicy(BasePolicy):
@@ -60,6 +83,9 @@ class RemoteOpenPIBasePolicy(BasePolicy):
 
     def act(self, obs: dict) -> np.ndarray:
         return np.asarray(self.policy.act(obs), dtype=np.float32).reshape(-1)
+
+    def planned_chunk(self) -> np.ndarray | None:
+        return self.policy.planned_chunk(include_current=True)
 
 
 def make_base_policy(

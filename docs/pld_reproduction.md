@@ -103,6 +103,53 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --total-env-steps 250000
 ```
 
+To watch training live, add realtime rendering:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --output-dir outputs/pld/OpenSafeDoor-v2 \
+  --total-env-steps 250000 \
+  --render-mode human \
+  --render-every 1
+```
+
+To also visualize the gripper TCP path in the viewer, add
+`--visualize-tcp-path`. Blue markers show the current base-policy future action
+chunk projected from the current TCP pose by accumulating each action's
+`dx,dy,dz`. Orange markers show the true TCP positions reached after executing
+`a_base + a_delta`:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --output-dir outputs/pld/OpenSafeDoor-v2 \
+  --total-env-steps 250000 \
+  --render-mode human \
+  --render-every 1 \
+  --visualize-tcp-path \
+  --base-chunk-max-actions 16 \
+  --base-chunk-position-scale 0.1 \
+  --path-every 2
+```
+
+`--base-chunk-position-scale` should match the controller's position scale. For
+Panda `pd_ee_delta_pose`, normalized actions map to roughly `[-0.1, 0.1]`
+meters, so `0.1` is the default.
+
+Use a larger `--render-every`, such as `5` or `10`, if rendering makes training
+too slow.
+
 If you only want to verify the offline loading and SAC update path without
 starting SAPIEN rendering:
 

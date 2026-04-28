@@ -39,9 +39,11 @@ class RemoteWebsocketChunkPolicy:
         self._image_tools = image_tools
         self._client = websocket_client_policy.WebsocketClientPolicy(host=self.server, port=None)
         self._queue: deque[np.ndarray] = deque()
+        self._last_action: np.ndarray | None = None
 
     def reset(self) -> None:
         self._queue.clear()
+        self._last_action = None
 
     def _preprocess_images(self, example: dict) -> dict:
         # Ensure uint8 HWC, then resize_with_pad to reduce bandwidth.
@@ -67,5 +69,21 @@ class RemoteWebsocketChunkPolicy:
             chunk = chunk[:, : self.act_dim].astype(np.float32, copy=False)
             for a in chunk:
                 self._queue.append(a)
-        return self._queue.popleft()
+        self._last_action = self._queue.popleft()
+        return self._last_action
 
+    def planned_chunk(self, *, include_current: bool = True) -> np.ndarray | None:
+        """
+        Return the currently executing action chunk.
+
+        After `act()` has been called, this is the action just returned plus the
+        remaining queued actions. It is useful for visualizing an open-loop
+        chunked policy without issuing another inference request.
+        """
+        parts: list[np.ndarray] = []
+        if include_current and self._last_action is not None:
+            parts.append(np.asarray(self._last_action, dtype=np.float32))
+        parts.extend(np.asarray(a, dtype=np.float32) for a in self._queue)
+        if not parts:
+            return None
+        return np.stack(parts, axis=0)

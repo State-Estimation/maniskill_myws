@@ -28,6 +28,14 @@ def _as_done(x) -> bool:
     return bool(np.asarray(x).reshape(-1)[0])
 
 
+def _normalize_render_mode(render_mode: str | None) -> str | None:
+    if render_mode is None:
+        return None
+    if render_mode.lower() in {"none", "null", ""}:
+        return None
+    return render_mode
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str, required=True)
@@ -36,6 +44,19 @@ def main() -> None:
     parser.add_argument("--reward-mode", type=str, default="sparse")
     parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
     parser.add_argument("--render-mode", type=str, default=None)
+    parser.add_argument(
+        "--visualize-tcp-path",
+        action="store_true",
+        help="Draw TCP path markers in the viewer while rendering.",
+    )
+    parser.add_argument("--path-every", type=int, default=2)
+    parser.add_argument("--path-max-points", type=int, default=500)
+    parser.add_argument("--path-radius", type=float, default=0.008)
+    parser.add_argument("--tcp-pose-key", type=str, default="extra/tcp_pose")
+    parser.add_argument("--base-chunk-max-actions", type=int, default=16)
+    parser.add_argument("--base-chunk-position-scale", type=float, default=0.1)
+    parser.add_argument("--base-path-color", type=str, default="0.05,0.35,1.0,1.0")
+    parser.add_argument("--residual-path-color", type=str, default="1.0,0.28,0.02,1.0")
     parser.add_argument("--num-episodes", type=int, default=50)
     parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--max-steps", type=int, default=None)
@@ -71,6 +92,7 @@ def main() -> None:
     from mani_skill.utils.wrappers.record import RecordEpisode
 
     import maniskill_myws
+    from maniskill_myws.pld.path_visualizer import TCPPathVisualizer, parse_rgba
     from maniskill_myws.pld.policies import make_base_policy
     from maniskill_myws.pld.sac import ResidualSAC
     from maniskill_myws.pld.state import StateAdapter
@@ -80,12 +102,13 @@ def main() -> None:
     device = torch.device(args.device if args.device == "cpu" or torch.cuda.is_available() else "cpu")
     agent = ResidualSAC.load(args.checkpoint, device=device)
 
+    render_mode = _normalize_render_mode(args.render_mode)
     env = gym.make(
         args.env_id,
         obs_mode=args.obs_mode,
         reward_mode=args.reward_mode,
         control_mode=args.control_mode,
-        render_mode="rgb_array" if args.save_video else args.render_mode,
+        render_mode="rgb_array" if args.save_video else render_mode,
     )
     env = RecordEpisode(
         env,
@@ -93,6 +116,7 @@ def main() -> None:
         trajectory_name=args.trajectory_name,
         save_trajectory=True,
         save_video=bool(args.save_video),
+        record_env_state=not bool(args.visualize_tcp_path),
         video_fps=args.video_fps,
         source_type="pld",
         source_desc=(
@@ -120,12 +144,24 @@ def main() -> None:
         max_steps = getattr(env.spec, "max_episode_steps", None)
     max_steps = int(max_steps or 500)
     rng = np.random.default_rng(args.start_seed)
+    path_visualizer = None
+    if args.visualize_tcp_path:
+        path_visualizer = TCPPathVisualizer(
+            env=env,
+            max_points=args.path_max_points,
+            radius=args.path_radius,
+            base_color=parse_rgba(args.base_path_color),
+            residual_color=parse_rgba(args.residual_path_color),
+            tcp_pose_key=args.tcp_pose_key,
+        )
 
     last_keep = False
     successes = 0
     for ep in range(args.num_episodes):
         obs, _ = env.reset(seed=args.start_seed + ep, save=(last_keep or args.keep_failed))
         base_policy.reset()
+        if path_visualizer is not None:
+            path_visualizer.clear()
         if args.probe_steps is not None:
             probe_steps = int(args.probe_steps)
         else:
@@ -134,15 +170,29 @@ def main() -> None:
 
         success = False
         for step in range(max_steps):
+            base_action = base_policy.act(obs)
+            if path_visualizer is not None:
+                path_visualizer.set_base_prediction_from_chunk(
+                    obs,
+                    base_policy.planned_chunk(),
+                    position_scale=args.base_chunk_position_scale,
+                    max_actions=args.base_chunk_max_actions,
+                )
             if args.render_mode is not None:
                 try:
+                    if path_visualizer is not None:
+                        path_visualizer.show_used()
                     env.render()
                 except Exception:
                     pass
-            base_action = base_policy.act(obs)
+                finally:
+                    if path_visualizer is not None:
+                        path_visualizer.hide_used()
             if step < probe_steps:
+                action_source = "base"
                 action = base_action
             else:
+                action_source = "residual"
                 state = state_adapter(obs)
                 action = agent.select_action(
                     state,
@@ -150,6 +200,13 @@ def main() -> None:
                     deterministic=not bool(args.stochastic_residual),
                 )
             obs, reward, terminated, truncated, info = env.step(action)
+            if (
+                path_visualizer is not None
+                and args.path_every > 0
+                and step % args.path_every == 0
+                and action_source == "residual"
+            ):
+                path_visualizer.add_from_obs(obs, "residual")
             success = bool(np.asarray(info.get("success", False)).reshape(-1)[0])
             if _as_done(terminated) or _as_done(truncated):
                 break

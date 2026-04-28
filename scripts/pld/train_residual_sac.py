@@ -40,6 +40,30 @@ def _as_done(x) -> bool:
     return bool(arr.reshape(-1)[0])
 
 
+def _normalize_render_mode(render_mode: str | None) -> str | None:
+    if render_mode is None:
+        return None
+    if render_mode.lower() in {"none", "null", ""}:
+        return None
+    return render_mode
+
+
+def _maybe_render(env, render_mode: str | None, step: int, every: int, path_visualizer=None) -> None:
+    if render_mode is None:
+        return
+    if every <= 0 or step % every != 0:
+        return
+    try:
+        if path_visualizer is not None:
+            path_visualizer.show_used()
+        env.render()
+    except Exception as e:
+        print(f"render warning at step {step}: {e}")
+    finally:
+        if path_visualizer is not None:
+            path_visualizer.hide_used()
+
+
 def _action_bounds(action_space, action_dim: int) -> tuple[tuple[float, ...], tuple[float, ...]]:
     low = getattr(action_space, "low", None)
     high = getattr(action_space, "high", None)
@@ -58,6 +82,59 @@ def main() -> None:
     parser.add_argument("--obs-mode", type=str, default="state_dict")
     parser.add_argument("--reward-mode", type=str, default="sparse")
     parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    parser.add_argument(
+        "--render-mode",
+        type=str,
+        default=None,
+        help="Optional ManiSkill render mode, e.g. 'human' for realtime viewing.",
+    )
+    parser.add_argument(
+        "--render-every",
+        type=int,
+        default=1,
+        help="Call env.render() every N env steps when --render-mode is set.",
+    )
+    parser.add_argument(
+        "--visualize-tcp-path",
+        action="store_true",
+        help="Draw TCP path markers in the viewer while rendering.",
+    )
+    parser.add_argument(
+        "--path-every",
+        type=int,
+        default=2,
+        help="Add one TCP path marker every N env steps when visualization is enabled.",
+    )
+    parser.add_argument("--path-max-points", type=int, default=500)
+    parser.add_argument("--path-radius", type=float, default=0.008)
+    parser.add_argument("--tcp-pose-key", type=str, default="extra/tcp_pose")
+    parser.add_argument(
+        "--base-chunk-max-actions",
+        type=int,
+        default=16,
+        help="Maximum number of base-policy chunk actions to visualize in blue.",
+    )
+    parser.add_argument(
+        "--base-chunk-position-scale",
+        type=float,
+        default=0.1,
+        help=(
+            "Meters per normalized action unit when projecting the base policy's "
+            "future action chunk into TCP positions."
+        ),
+    )
+    parser.add_argument(
+        "--base-path-color",
+        type=str,
+        default="0.05,0.35,1.0,1.0",
+        help="RGBA color for base-policy path markers.",
+    )
+    parser.add_argument(
+        "--residual-path-color",
+        type=str,
+        default="1.0,0.28,0.02,1.0",
+        help="RGBA color for residual-policy path markers.",
+    )
     parser.add_argument("--offline-h5-dir", type=str, default=DEFAULT_OFFLINE_DIR)
     parser.add_argument("--offline-h5-glob", type=str, default=None)
     parser.add_argument("--state-keys", type=str, nargs="+", default=DEFAULT_STATE_KEYS)
@@ -109,6 +186,7 @@ def main() -> None:
     import maniskill_myws
     from maniskill_myws.pld.h5_replay import find_h5_files, load_h5_replay
     from maniskill_myws.pld.policies import make_base_policy
+    from maniskill_myws.pld.path_visualizer import TCPPathVisualizer, parse_rgba
     from maniskill_myws.pld.replay_buffer import ReplayBuffer, sample_offline_online
     from maniskill_myws.pld.sac import ResidualSAC, SACConfig
     from maniskill_myws.pld.state import StateAdapter
@@ -141,15 +219,17 @@ def main() -> None:
     action_dim = offline_data.action_dim
     env = None
     if args.total_env_steps > 0:
+        render_mode = _normalize_render_mode(args.render_mode)
         env = gym.make(
             args.env_id,
             obs_mode=args.obs_mode,
             reward_mode=args.reward_mode,
             control_mode=args.control_mode,
-            render_mode=None,
+            render_mode=render_mode,
         )
         low, high = _action_bounds(env.action_space, action_dim)
     else:
+        render_mode = None
         low, high = (-1.0,) * action_dim, (1.0,) * action_dim
 
     offline_buffer = ReplayBuffer(args.buffer_capacity, offline_data.state_dim, action_dim)
@@ -207,23 +287,59 @@ def main() -> None:
     if max_episode_steps is None and getattr(env, "spec", None) is not None:
         max_episode_steps = getattr(env.spec, "max_episode_steps", None)
     max_episode_steps = int(max_episode_steps or 500)
+    path_visualizer = None
+    if args.visualize_tcp_path:
+        path_visualizer = TCPPathVisualizer(
+            env=env,
+            max_points=args.path_max_points,
+            radius=args.path_radius,
+            base_color=parse_rgba(args.base_path_color),
+            residual_color=parse_rgba(args.residual_path_color),
+            tcp_pose_key=args.tcp_pose_key,
+        )
 
     obs, _ = env.reset(seed=args.seed)
     base_policy.reset()
     state = state_adapter(obs)
     base_action = base_policy.act(obs)
+    if path_visualizer is not None:
+        path_visualizer.clear()
+        path_visualizer.set_base_prediction_from_chunk(
+            obs,
+            base_policy.planned_chunk(),
+            position_scale=args.base_chunk_position_scale,
+            max_actions=args.base_chunk_max_actions,
+        )
+    _maybe_render(env, render_mode, 0, args.render_every, path_visualizer)
     episode_idx = 0
     episode_return = 0.0
     episode_steps = 0
     t0 = time.time()
 
     for env_step in range(1, args.total_env_steps + 1):
+        if path_visualizer is not None:
+            path_visualizer.set_base_prediction_from_chunk(
+                obs,
+                base_policy.planned_chunk(),
+                position_scale=args.base_chunk_position_scale,
+                max_actions=args.base_chunk_max_actions,
+            )
+        _maybe_render(env, render_mode, env_step, args.render_every, path_visualizer)
         if episode_idx < args.warmup_episodes:
+            action_source = "base"
             action = base_action
         else:
+            action_source = "residual"
             action = agent.select_action(state, base_action, deterministic=False)
 
         next_obs, reward, terminated, truncated, info = env.step(action)
+        if (
+            path_visualizer is not None
+            and args.path_every > 0
+            and env_step % args.path_every == 0
+            and action_source == "residual"
+        ):
+            path_visualizer.add_from_obs(next_obs, "residual")
         done = _as_done(terminated) or _as_done(truncated)
         next_state = state_adapter(next_obs)
         next_base_action = np.zeros_like(base_action) if done else base_policy.act(next_obs)
@@ -266,6 +382,15 @@ def main() -> None:
             base_policy.reset()
             state = state_adapter(obs)
             base_action = base_policy.act(obs)
+            if path_visualizer is not None:
+                path_visualizer.clear()
+                path_visualizer.set_base_prediction_from_chunk(
+                    obs,
+                    base_policy.planned_chunk(),
+                    position_scale=args.base_chunk_position_scale,
+                    max_actions=args.base_chunk_max_actions,
+                )
+            _maybe_render(env, render_mode, env_step, args.render_every, path_visualizer)
             episode_return = 0.0
             episode_steps = 0
         else:
