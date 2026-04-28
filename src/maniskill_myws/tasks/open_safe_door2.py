@@ -67,6 +67,9 @@ class OpenSafeDoor2Env(BaseEnv):
         # Keep yaw noise smaller so the door is less likely to swing into the robot/table.
         safe_yaw_noise: float = np.pi / 20,
         door_open_threshold: float = np.pi / 6,
+        door_joint_damping: float = 0.05,
+        button_joint_friction: float = 0.8,
+        button_joint_damping: float = 1.0,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -76,6 +79,9 @@ class OpenSafeDoor2Env(BaseEnv):
         self.safe_spawn_half_size_y = float(safe_spawn_half_size_y)
         self.safe_yaw_noise = safe_yaw_noise
         self.door_open_threshold = float(door_open_threshold)
+        self.door_joint_damping = float(door_joint_damping)
+        self.button_joint_friction = float(button_joint_friction)
+        self.button_joint_damping = float(button_joint_damping)
         self._safe_table_z = 1e-3
 
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
@@ -166,7 +172,16 @@ class OpenSafeDoor2Env(BaseEnv):
             j.set_friction(0.3)
             j.set_drive_properties(0.0, 0.0)
 
-        self.button_joint.set_friction(0.5)
+        # Keep the door nearly free, but add tiny velocity damping to absorb limit/collision rebound.
+        self.door_joint.set_friction(0.0)
+        self.door_joint.set_drive_properties(0.0, self.door_joint_damping)
+        self.door_joint.set_drive_velocity_target(0.0)
+
+        # The button is attached to the door frame; light friction/damping prevents passive sliding
+        # when the door moves, while keeping it pressable by the gripper.
+        self.button_joint.set_friction(self.button_joint_friction)
+        self.button_joint.set_drive_properties(0.0, self.button_joint_damping)
+        self.button_joint.set_drive_velocity_target(0.0)
 
         self._door_released = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
