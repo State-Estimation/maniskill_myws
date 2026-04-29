@@ -76,6 +76,20 @@ python -m mani_skill.trajectory.replay_trajectory \
 
 > replay 会输出新的 `.h5 + .json`，其中 obs 已对齐到 `rgb` + `pd_ee_delta_pose`。
 
+如果需要采集 PLD Algorithm 1 中的 `πb` 成功 rollout 数据，而不是摇操/专家数据，可以直接连接 OpenPI server 采集标准 ManiSkill `.h5 + .json`：
+
+```bash
+python scripts/pld/collect_base_policy_dataset.py \
+  --env-id OpenSafeDoor-v2 \
+  --server ws://127.0.0.1:8000 \
+  --num-successes 50 \
+  --max-attempts 200 \
+  --output-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
+  --trajectory-name pi0_base_policy
+```
+
+该脚本默认使用 `obs_mode=rgb`、`reward_mode=none`、`control_mode=pd_ee_delta_pose`、`robot_uids=panda_wristcam`，只保存成功 episode。输出可直接作为 PLD 的 `--offline-h5-dir`，也可以继续按下一节转成 LeRobot dataset。
+
 ---
 
 ## E) 转换成 LeRobot dataset（统一格式）

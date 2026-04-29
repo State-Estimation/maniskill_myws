@@ -47,12 +47,14 @@ the authors' full internal stack.
 - The residual RL specialist is state-only: by default it uses
   `agent/qpos`, `agent/qvel`, and `extra/tcp_pose`, giving a 25D state on the
   existing OpenSafeDoor-v2 replay data.
-- The paper also uses a visual encoder for residual RL. That can be added later,
-  but state-only is much easier to debug and already preserves the core PLD
-  mechanism: base-policy probing, residual takeover, and SFT data generation.
-- The paper initializes critics with Cal-QL. This implementation provides normal
-  SAC updates plus an optional CQL-style penalty via `--cql-alpha`. Treat it as
-  a pragmatic first pass before adding full Cal-QL.
+- The paper also uses a ResNetV1-10 visual encoder for residual RL. This repo
+  keeps state-only as the default for fast debugging, and enables visual RL with
+  `--use-visual-rl`.
+- The paper initializes critics with Cal-QL. This implementation provides
+  critic-only Cal-QL warm-start via `--offline-pretrain-method calql`.
+- The paper uses OTF to select the best action among base/edit candidates for
+  sampling and TD backup. This implementation adapts OTF to PLD by holding the
+  remote base-policy action fixed and sampling multiple residual edits.
 - Existing replay trajectories do not store a separate frozen VLA action. The
   loader defaults to `--offline-base-action-mode action`, meaning the recorded
   action is used as the offline base-action proxy. Online PLD training should
@@ -76,6 +78,22 @@ The default offline path is:
 ```text
 dataset/Replayed_traj_data_openSafeDoor2
 ```
+
+For the closest match to Algorithm 1, the offline buffer should contain
+successful frozen base-policy rollouts, not teleop/joystick demonstrations. To
+collect that dataset from a running OpenPI server:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/collect_base_policy_dataset.py \
+  --env-id OpenSafeDoor-v2 \
+  --server ws://127.0.0.1:8000 \
+  --num-successes 50 \
+  --max-attempts 200 \
+  --output-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
+  --trajectory-name pi0_base_policy
+```
+
+Then train PLD with `--offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2`.
 
 ## Stage 1: Train Residual Specialist
 
@@ -103,6 +121,102 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --total-env-steps 250000
 ```
 
+To use the Cal-QL critic warm-start described in PLD, replace the default SAC
+offline pretrain with critic-only Cal-QL pretraining:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --output-dir outputs/pld/OpenSafeDoor-v2_calql \
+  --total-env-steps 250000 \
+  --offline-pretrain-method calql \
+  --offline-pretrain-updates 1000
+```
+
+This computes discounted Monte Carlo return-to-go values from the successful H5
+trajectories and uses them as Cal-QL lower bounds for sampled policy actions.
+Only `Q1/Q2` are updated during this phase; the residual actor stays randomly
+initialized until online residual SAC starts.
+
+To enable OTF during residual SAC, add OTF candidate counts for backup and/or
+online rollout:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --output-dir outputs/pld/OpenSafeDoor-v2_otf \
+  --total-env-steps 250000 \
+  --offline-pretrain-method calql \
+  --offline-pretrain-updates 20000 \
+  --otf-backup-actions 4 \
+  --otf-rollout-actions 4
+```
+
+`--otf-backup-actions N` samples `N` residual edits for the next state and backs
+up the highest critic value, matching the OTF paper's hard-Q TD target.
+`--otf-rollout-actions N` samples `N` residual edits during online rollout and
+executes the critic-best action. By default the unedited base action is also
+included as a candidate, so `N=4` means five total candidates. Use
+`--otf-no-base-candidate` only if you explicitly want edited actions to compete
+without the base-policy fallback. Use `--otf-backup-entropy` if you want the OTF
+target to use SAC soft values `Q - alpha log pi` instead.
+
+To train the residual actor/critic from proprioception plus RGB, add
+`--use-visual-rl`. The visual path loads the base and wrist camera RGB streams,
+feeds them through a compact ResNetV1-10-style encoder, and concatenates the
+visual latent with `--state-keys` before the actor/Q MLPs:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --output-dir outputs/pld/OpenSafeDoor-v2_visual \
+  --total-env-steps 250000 \
+  --offline-pretrain-method calql \
+  --offline-pretrain-updates 20000 \
+  --use-visual-rl \
+  --rl-image-size 128
+```
+
+For quick debugging, use a smaller image size such as `--rl-image-size 64` and a
+smaller `--buffer-capacity`; full visual replay with two 128x128 cameras is much
+heavier than the default state-only replay. Warmup buffers are shape-specific:
+a state-only `.npz` warmup buffer cannot be reused when `--use-visual-rl` is
+enabled, because it does not contain RGB observations.
+
+To reuse the base-policy warmup across runs, add a persistent warmup buffer path:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --output-dir outputs/pld/OpenSafeDoor-v2 \
+  --total-env-steps 250000 \
+  --warmup-buffer-path outputs/pld/OpenSafeDoor-v2/warmup_buffer.npz
+```
+
+On the first run, the script saves the online replay gathered during
+`--warmup-episodes`. Later runs load the `.npz` automatically, skip warmup, and
+resume counting `env_step` from the saved warmup transition count.
+
 To watch training live, add realtime rendering:
 
 ```bash
@@ -118,6 +232,59 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --render-mode human \
   --render-every 1
 ```
+
+To log PLD residual training to Weights & Biases, add:
+
+```bash
+  --wandb-enabled \
+  --wandb-project maniskill-pld \
+  --wandb-name opensafedoor_residual_sac_seed0
+```
+
+The script records offline pretrain metrics, per-episode success/return, online
+training metrics, warmup-buffer load/save events, and checkpoint saves.
+
+After training, evaluate every saved residual checkpoint with deterministic
+actions:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/eval_residual_checkpoints.py \
+  --checkpoint-dir outputs/pld/OpenSafeDoor-v2 \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --num-episodes 20 \
+  --start-seed 0 \
+  --wandb-enabled \
+  --wandb-project maniskill-pld \
+  --wandb-name opensafedoor_checkpoint_eval
+```
+
+For a base-policy-only baseline on the same seeds:
+
+```bash
+conda run -n robotwin-cu130 python scripts/pld/eval_residual_checkpoints.py \
+  --mode base \
+  --checkpoint-dir outputs/pld/OpenSafeDoor-v2 \
+  --env-id OpenSafeDoor-v2 \
+  --obs-mode rgb \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --num-episodes 20 \
+  --start-seed 0
+```
+
+The evaluator writes `checkpoint_eval.csv` and `checkpoint_eval.json` under
+`<checkpoint-dir>/eval/`. By default all checkpoints use the same eval seeds so
+their success rates are directly comparable.
+
+If the checkpoint was trained/evaluated as an OTF policy, add the same rollout
+candidate count to checkpoint eval, for example `--otf-rollout-actions 4`.
+Visual checkpoints automatically require the same camera keys; override
+`--rl-image-keys` only if the checkpoint was trained with non-default cameras.
 
 To also visualize the gripper TCP path in the viewer, add
 `--visualize-tcp-path`. Blue markers show the current base-policy future action
@@ -214,12 +381,27 @@ uv run python ../../scripts/pi0/finetune_maniskill.py \
 
 ## Useful Knobs
 
-- `--action-scale`: residual magnitude `xi`; paper uses `0.5`.
+- `--action-scale`: residual magnitude `xi`; the paper suggests `0.5` for
+  LIBERO and `0.1` for SimplerEnv. OpenSafeDoor-v2 is closer to the latter, so
+  `0.1` is a safer default.
 - `--warmup-episodes`: base-policy-only online warmup; paper uses `100`.
-- `--offline-fraction`: offline/online replay mix; paper samples them equally.
+- `--warmup-buffer-path`: persist the warmup online replay so later runs can
+  skip redoing the base-policy warmup.
+- `--offline-pretrain-method calql`: use Cal-QL critic-only warm-start instead
+  of the older SAC-style offline pretrain.
+- `--use-visual-rl`: enable RGB + proprio residual RL with a ResNetV1-10-style
+  encoder. Keep disabled for fast state-only debugging.
+- `--rl-image-size`: image size stored in replay. `128` matches the current H5
+  camera resolution; lower values reduce memory and speed up iteration.
+- `--wandb-enabled`: turn on wandb logging for offline pretrain, RL training,
+  warmup-buffer events, and checkpoints.
+- `--offline-fraction`: offline/online replay mix; paper samples them equally,
+  and the default is `0.5`.
 - `--probe-alpha`: max probing horizon ratio for PLD data collection; start at
   `0.6`.
-- `--cql-alpha`: optional conservative Q penalty during SAC updates.
+- `--cql-alpha`: optional conservative Q penalty during online SAC updates; the
+  default is `0.0`, so Cal-QL pretraining is the only conservative critic
+  regularization unless this is explicitly enabled.
 
 ## Environment Note
 
