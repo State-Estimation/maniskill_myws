@@ -175,13 +175,11 @@ class OpenSafeDoor2Env(BaseEnv):
         # Keep the door nearly free, but add tiny velocity damping to absorb limit/collision rebound.
         self.door_joint.set_friction(0.0)
         self.door_joint.set_drive_properties(0.0, self.door_joint_damping)
-        self.door_joint.set_drive_velocity_target(0.0)
 
         # The button is attached to the door frame; light friction/damping prevents passive sliding
         # when the door moves, while keeping it pressable by the gripper.
         self.button_joint.set_friction(self.button_joint_friction)
         self.button_joint.set_drive_properties(0.0, self.button_joint_damping)
-        self.button_joint.set_drive_velocity_target(0.0)
 
         self._door_released = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
