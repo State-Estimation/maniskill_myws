@@ -49,11 +49,11 @@ class TakeSafetyHookEnv(BaseEnv):
         robot_init_qpos_noise: float = 0.02,
         hook_init_qpos_noise: float = 0.1,
         success_threshold: float = np.pi / 4,
-        beam_length: float = 0.5,
+        beam_length: float = 0.7,
         beam_radius: float = 0.015,
-        beam_center_x: float = 0.1,
+        beam_center_x: float = 0.05,
         beam_center_y: float = 0.0,
-        beam_center_z: float = 0.32,
+        beam_center_z: float = 0.5,
         beam_center_x_noise: float = 0.025,
         beam_center_y_noise: float = 0.015,
         beam_center_z_noise: float = 0.02,
@@ -175,7 +175,7 @@ class TakeSafetyHookEnv(BaseEnv):
             pose=sapien.Pose(q=_Q_BEAM_Y),
             radius=self.beam_radius,
             half_length=self.beam_length / 2,
-            material=sapien.render.RenderMaterial(base_color=[0.5, 0.5, 0.5, 1.0]),
+            material=sapien.render.RenderMaterial(base_color=[0.12, 0.36, 0.85, 1.0]),
         )
         self.beam = beam_builder.build_kinematic(name="beam")
 
