@@ -65,15 +65,14 @@ class TurnGlobeValveEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        # Raise the base view and tilt it down a bit so the valve occupies more pixels.
-        pose = sapien_utils.look_at([0.45, 0.35, 0.65], [0.02, 0.0, 0.08])
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
         return [
-                    CameraConfig("base_camera", pose=pose, width=128, height=128, fov=0.9)
+            CameraConfig("base_camera", pose=pose, width=128, height=128, fov=1)
         ]
 
     @property
     def _default_human_render_camera_configs(self):
-        pose = sapien_utils.look_at([0.6, 0.6, 0.9], [0.0, 0.0, 0.2])
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1)
 
     def _load_agent(self, options: dict):
