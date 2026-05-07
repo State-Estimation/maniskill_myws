@@ -1,0 +1,410 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="door">
+  <link
+    name="door_frame">
+    <inertial>
+      <origin
+        xyz="-0.0675064873554519 -0.0254111733586616 -0.0813698389925076"
+        rpy="0 0 0" />
+      <mass
+        value="833.452860960001" />
+      <inertia
+        ixx="202.158086674609"
+        ixy="2.4155850764665E-14"
+        ixz="1.76617856733716"
+        iyy="128.434832493651"
+        iyz="1.22340140027669E-15"
+        izz="224.739807072642" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame.STL" scale="0.5 0.5 0.5" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.686274509803922 0.658823529411765 0.63921568627451 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_0.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_1.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_2.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_3.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_4.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_5.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_6.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_7.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_8.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_9.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_10.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_frame/part_11.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="door_link">
+    <inertial>
+      <origin
+        xyz="-0.358947527129936 -0.0264111733586614 -1.21569421196455E-14"
+        rpy="0 0 0" />
+      <mass
+        value="135.668379736162" />
+      <inertia
+        ixx="13.7693077301722"
+        ixy="1.83679966339951E-15"
+        ixz="9.56179579958416E-15"
+        iyy="6.29363601617103"
+        iyz="3.20344314519738E-18"
+        izz="20.030458496389" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link.STL" scale="0.5 0.5 0.5" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.686274509803922 0.658823529411765 0.63921568627451 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_0.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_1.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_2.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_3.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_4.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_5.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_6.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_7.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/door_link/part_8.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_door"
+    type="revolute">
+    <origin
+      xyz="0.3171 -0.38 0"
+      rpy="1.5708 0 -0.0051695" />
+    <parent
+      link="door_frame" />
+    <child
+      link="door_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="1.57"
+      upper="4.71"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="button_link">
+    <inertial>
+      <origin
+        xyz="-8.32667268468867E-17 4.16333634234434E-17 0.0399978620922186"
+        rpy="0 0 0" />
+      <mass
+        value="2.7826870557472" />
+      <inertia
+        ixx="0.00322327917290718"
+        ixy="1.84342162591118E-19"
+        ixz="-3.59141969635823E-19"
+        iyy="0.00322327917290718"
+        iyz="3.98105485209521E-19"
+        izz="0.00347835881968401" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/button_link.STL" scale="0.5 0.5 0.5" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.686274509803922 0.658823529411765 0.63921568627451 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/button_link/part_0.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_button"
+    type="prismatic">
+    <origin
+      xyz="-0.1555 -0.026411 0.0089093"
+      rpy="0 0 -0.84248" />
+    <parent
+      link="door_link" />
+    <child
+      link="button_link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="0"
+      upper="0.05"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="handle_link">
+    <inertial>
+      <origin
+        xyz="0.0306818497259087 1.73472347597681E-17 0.0899538223660534"
+        rpy="0 0 0" />
+      <mass
+        value="1.977892900921" />
+      <inertia
+        ixx="0.00681440077606528"
+        ixy="-3.63636124621885E-18"
+        ixz="-0.00340118542333556"
+        iyy="0.0115267131102082"
+        iyz="-2.19847401459854E-18"
+        izz="0.00521033768611408" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/handle_link.STL" scale="0.5 0.5 0.5" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.686274509803922 0.658823529411765 0.63921568627451 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/handle_link/part_0.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/handle_link/part_1.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://door2/meshes/handle_link/part_2.glb" scale="0.5 0.5 0.5" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_bar"
+    type="revolute">
+    <origin
+      xyz="-0.5955 -0.026411 0"
+      rpy="0 0 0.015221" />
+    <parent
+      link="door_link" />
+    <child
+      link="handle_link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="0"
+      upper="1.57"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

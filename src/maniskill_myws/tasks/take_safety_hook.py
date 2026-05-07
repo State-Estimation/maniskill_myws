@@ -98,10 +98,10 @@ class TakeSafetyHookEnv(BaseEnv):
         
         # Use workspace-shipped asset (works even when ManiSkill is installed via pip).
         base0_dir = importlib_resources.files("maniskill_myws").joinpath(
-            "assets/safety_hook2/urdf"
+            "assets/hook2/urdf"
         )
         with importlib_resources.as_file(base0_dir) as base0_path:
-            urdf_path = base0_path / "safety_hook.urdf"
+            urdf_path = base0_path / "hook2.urdf"
             self.hook: Articulation = loader.load(
                 str(urdf_path),
                 name="safety_hook",

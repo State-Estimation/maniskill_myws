@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="hook2">
+  <link
+    name="frame_link">
+    <inertial>
+      <origin
+        xyz="-0.0038515 4.4248E-18 -0.027391"
+        rpy="0 0 0" />
+      <mass
+        value="0.072357" />
+      <inertia
+        ixx="6.2521E-05"
+        ixy="4.9377E-22"
+        ixz="-1.5757E-06"
+        iyy="8.1721E-05"
+        iyz="-3.078E-21"
+        izz="2.1914E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.68627 0.65882 0.63922 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link/part_0.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link/part_1.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link/part_2.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link/part_3.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link/part_4.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link/part_5.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/frame_link/part_6.glb" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="bar_link">
+    <inertial>
+      <origin
+        xyz="-0.0032293 3.5109E-19 0.023598"
+        rpy="0 0 0" />
+      <mass
+        value="0.020869" />
+      <inertia
+        ixx="5.0764E-06"
+        ixy="-5.6348E-24"
+        ixz="6.3267E-07"
+        iyy="4.8336E-06"
+        iyz="2.2676E-26"
+        izz="5.3977E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/bar_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.68627 0.65882 0.63922 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hook2/meshes/bar_link/part_0.glb" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_bar"
+    type="revolute">
+    <origin
+      xyz="0.01786 0 -0.0645"
+      rpy="0 0 0" />
+    <parent
+      link="frame_link" />
+    <child
+      link="bar_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="-0.56"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

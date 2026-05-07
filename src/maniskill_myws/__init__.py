@@ -17,6 +17,7 @@ def register() -> None:
     from .tasks import brush_solar_panel as _brush_solar_panel  # noqa: F401
     from .tasks import open_safe_door as _open_safe_door  # noqa: F401
     from .tasks import open_safe_door2 as _open_safe_door2  # noqa: F401
+    from .tasks import open_safe_door3 as open_safe_door3 # noqa: F401
     from .tasks import open_safety_hook as _open_safety_hook  # noqa: F401
     from .tasks import stack_cube_v2 as _stack_cube_v2  # noqa: F401
     from .tasks import sweep_solar_panel as _sweep_solar_panel  # noqa: F401
