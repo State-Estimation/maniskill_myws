@@ -6,18 +6,18 @@ This script is intended to be run in the **openpi uv environment** (training env
 
 Prereqs:
 1) Convert your ManiSkill trajectories (.h5) to a LeRobot dataset (repo_id), e.g. with:
-   python /home/sisyphus/Projects/maniskill_myws/scripts/convert_traj_to_lerobot.py ...
+   python scripts/convert_traj_to_lerobot.py ...
 2) Make sure you can load the LeRobot dataset via that repo_id from within your openpi env.
 
 Usage (recommended, inside openpi repo):
-  cd /home/sisyphus/Projects/openpi
-  uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/finetune_maniskill.py \\
-    --openpi-root /home/sisyphus/Projects/openpi \\
+  cd third_party/openpi
+  uv run python ../../scripts/pi0/finetune_maniskill.py \\
+    --openpi-root . \\
     --config pi05_libero \\
     --repo-id local/maniskill_myws_turn_globe_valve \\
     --exp-name ms_pi05_v1 \\
-    --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \\
-    --checkpoint-base-dir /home/sisyphus/Projects/maniskill_myws/checkpoints_openpi \\
+    --assets-base-dir ../../assets_openpi \\
+    --checkpoint-base-dir ../../checkpoints_openpi \\
     --overwrite
 
 Notes:
@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -150,8 +151,10 @@ def main() -> None:
     p.add_argument("--checkpoint-base-dir", type=str, required=True, help="Where to write checkpoints for this finetune run.")
 
     p.add_argument("--batch-size", type=int, default=None, help="Override batch size for training and norm stats.")
-    p.add_argument("--num-workers", type=int, default=None, help="Override num_workers for norm stats computation.")
+    p.add_argument("--num-workers", type=int, default=None, help="Override num_workers for norm stats computation and training.")
     p.add_argument("--max-frames", type=int, default=None, help="Max frames for norm stats (optional).")
+    p.add_argument("--fsdp-devices", type=int, default=None, help="Override openpi fsdp_devices for training.")
+    p.add_argument("--num-train-steps", type=int, default=None, help="Override openpi num_train_steps for training.")
 
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--resume", action="store_true")
@@ -208,17 +211,21 @@ def main() -> None:
         cmd += ["--wandb_enabled"]
     if args.batch_size is not None:
         cmd += ["--batch_size", str(args.batch_size)]
+    if args.num_workers is not None:
+        cmd += ["--num_workers", str(args.num_workers)]
+    if args.fsdp_devices is not None:
+        cmd += ["--fsdp_devices", str(args.fsdp_devices)]
+    if args.num_train_steps is not None:
+        cmd += ["--num_train_steps", str(args.num_train_steps)]
     if args.overwrite:
         cmd += ["--overwrite"]
     if args.resume:
         cmd += ["--resume"]
 
     print("Launching training:")
-    print("  " + " ".join(cmd))
+    print("  " + shlex.join(cmd))
     subprocess.run(cmd, check=True)
 
 
 if __name__ == "__main__":
     main()
-
-

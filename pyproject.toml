@@ -23,6 +23,9 @@ runtime = [
   "gymnasium>=0.29",
   "h5py>=3.9",
   "mani_skill",
+  "matplotlib>=3.7",
+  "PyYAML>=6",
+  "pytorch_kinematics_ms",
 ]
 dev = [
   "pytest>=7.4",

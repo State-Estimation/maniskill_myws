@@ -11,7 +11,7 @@ Why this exists:
 
 Server usage (GPU machine / policy env):
   conda activate <openpi_env>
-  python scripts/pi0/serve.py --config pi05_libero --checkpoint gs://openpi-assets/checkpoints/pi05_libero --port 8000
+  cd third_party/openpi && uv run python ../../scripts/pi0/serve.py --config pi05_libero --checkpoint gs://openpi-assets/checkpoints/pi05_libero --port 8000
 
 Client usage (ManiSkill env):
   python scripts/pi0/run_pi0_remote.py --server ws://<ip>:8000 ...

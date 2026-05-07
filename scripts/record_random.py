@@ -5,7 +5,7 @@ Record random rollouts to ManiSkill's trajectory format (.h5 + .json).
 This is a non-interactive baseline collector useful for debugging the pipeline.
 
 Example:
-  python scripts/record_random.py --env-id TurnGlobeValve-v1 --out-dir data/demos/debug --num-episodes 5
+  python scripts/record_random.py --env-id TurnGlobeValve-v1 --out-dir data/demos/debug --num-episodes 5 --obs-mode rgb
 """
 
 import argparse
@@ -77,5 +77,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

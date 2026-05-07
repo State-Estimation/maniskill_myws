@@ -42,6 +42,19 @@ def main() -> None:
     p.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
     p.add_argument("--render-mode", type=str, default=None, help="e.g. 'human' for visualization")
     p.add_argument(
+        "--visualize-tcp-path",
+        action="store_true",
+        help="Forward TCP/chunk path visualization options to each seed rollout.",
+    )
+    p.add_argument("--path-every", type=int, default=2)
+    p.add_argument("--path-max-points", type=int, default=500)
+    p.add_argument("--path-radius", type=float, default=0.008)
+    p.add_argument("--tcp-pose-key", type=str, default="extra/tcp_pose")
+    p.add_argument("--base-chunk-max-actions", type=int, default=16)
+    p.add_argument("--base-chunk-position-scale", type=float, default=0.1)
+    p.add_argument("--base-path-color", type=str, default="0.05,0.35,1.0,1.0")
+    p.add_argument("--residual-path-color", type=str, default="1.0,0.28,0.02,1.0")
+    p.add_argument(
         "--max-steps",
         type=int,
         default=None,
@@ -118,6 +131,19 @@ def main() -> None:
         
         if args.render_mode:
             cmd += ["--render-mode", args.render_mode]
+
+        if args.visualize_tcp_path:
+            cmd += [
+                "--visualize-tcp-path",
+                "--path-every", str(args.path_every),
+                "--path-max-points", str(args.path_max_points),
+                "--path-radius", str(args.path_radius),
+                "--tcp-pose-key", args.tcp_pose_key,
+                "--base-chunk-max-actions", str(args.base_chunk_max_actions),
+                "--base-chunk-position-scale", str(args.base_chunk_position_scale),
+                "--base-path-color", args.base_path_color,
+                "--residual-path-color", args.residual_path_color,
+            ]
         
         if args.save_videos:
             cmd += [

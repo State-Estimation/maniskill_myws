@@ -46,6 +46,8 @@ class TurnGlobeValveEnv(BaseEnv):
         valve_yaw_noise: float = np.pi / 6,
         valve_init_qpos_noise: float = np.pi,
         success_threshold: float = np.pi,
+        handwheel_friction: float = 1.0,
+        handwheel_damping: float = 10.0,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -53,6 +55,8 @@ class TurnGlobeValveEnv(BaseEnv):
         self.valve_yaw_noise = valve_yaw_noise
         self.valve_init_qpos_noise = valve_init_qpos_noise
         self.success_threshold = float(success_threshold)
+        self.handwheel_friction = float(handwheel_friction)
+        self.handwheel_damping = float(handwheel_damping)
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
@@ -61,14 +65,14 @@ class TurnGlobeValveEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at([-0.45, 0.0, 0.35], [0.0, 0.0, 0.10])
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
         return [
-            CameraConfig("base_camera", pose=pose, width=128, height=128, fov=np.pi / 2)
+            CameraConfig("base_camera", pose=pose, width=128, height=128, fov=1)
         ]
 
     @property
     def _default_human_render_camera_configs(self):
-        pose = sapien_utils.look_at([0.6, 0.6, 0.9], [0.0, 0.0, 0.2])
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1)
 
     def _load_agent(self, options: dict):
@@ -89,21 +93,27 @@ class TurnGlobeValveEnv(BaseEnv):
         )
         with importlib_resources.as_file(base0_dir) as base0_path:
             urdf_path = base0_path / "mobility.urdf"
-            self.valve: Articulation = loader.load(
-                str(urdf_path),
-                name="globe_valve",
-                scene_idxs=torch.arange(self.num_envs, dtype=torch.int32),
-                package_dir=str(base0_path),
-            )
+            loader.name = "globe_valve"
+            parsed = loader.parse(str(urdf_path), package_dir=str(base0_path))
+            articulation_builders = parsed["articulation_builders"]
+            actor_builders = parsed["actor_builders"]
+            if len(articulation_builders) != 1 or actor_builders:
+                raise RuntimeError(
+                    "Expected globe valve URDF to contain exactly one articulation and no loose actors."
+                )
+            valve_builder = articulation_builders[0]
+            valve_builder.set_scene_idxs(torch.arange(self.num_envs, dtype=torch.int32))
+            valve_builder.initial_pose = sapien.Pose(p=[0.0, 0.0, 1e-3])
+            self.valve: Articulation = valve_builder.build()
         self.handwheel_joint = self.valve.active_joints_map["handwheel_joint"]
 
         self._handwheel_qpos_prev = torch.zeros(self.num_envs, device=self.device)
         self._handwheel_cumulative = torch.zeros(self.num_envs, device=self.device)
 
-        # Make the joint easier to turn.
-        for j in self.valve.active_joints:
-            j.set_friction(0.01)
-            j.set_drive_properties(0.0, 0.0)
+        # Add passive joint friction so the handwheel does not coast unrealistically.
+        self.handwheel_joint.set_friction(self.handwheel_friction)
+        self.handwheel_joint.set_drive_properties(0.0, self.handwheel_damping)
+        self.handwheel_joint.set_drive_velocity_target(0.0)
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         with torch.device(self.device):
@@ -136,6 +146,7 @@ class TurnGlobeValveEnv(BaseEnv):
                 device=self.device,
             )
             self.valve.set_qpos(qpos0)
+            self.valve.set_qvel(torch.zeros_like(qpos0))
 
             self._handwheel_qpos_prev[env_idx] = qpos0[:, 0]
             self._handwheel_cumulative[env_idx] = 0.0
@@ -168,4 +179,3 @@ class TurnGlobeValveEnv(BaseEnv):
 
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):
         return info["success"].to(torch.float32)
-

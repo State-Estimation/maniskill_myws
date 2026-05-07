@@ -10,14 +10,14 @@ Runs in the openpi (uv) environment. It:
   - optionally runs a single model loss forward pass (slow; will JIT/compile)
 
 Example:
-  cd /home/sisyphus/Projects/openpi
-  uv run python /home/sisyphus/Projects/maniskill_myws/scripts/pi0/validate_lerobot_dataset.py \
-    --openpi-root /home/sisyphus/Projects/openpi \
+  cd third_party/openpi
+  uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
+    --openpi-root . \
     --config pi05_libero \
     --repo-id local/maniskill_myws_multitask \
-    --assets-base-dir /home/sisyphus/Projects/maniskill_myws/assets_openpi \
+    --assets-base-dir ../../assets_openpi \
     --num-batches 1 \
-    --save-images /home/sisyphus/Projects/maniskill_myws/outputs/validate_samples
+    --save-images ../../outputs/validate_samples
 """
 
 from __future__ import annotations
@@ -157,5 +157,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 

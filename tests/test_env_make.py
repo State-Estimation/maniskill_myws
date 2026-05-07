@@ -4,7 +4,8 @@ import pytest
 
 
 @pytest.mark.smoke
-def test_env_make_if_available():
+@pytest.mark.parametrize("env_id", ["TurnGlobeValve-v1", "TakeSafetyHook-v1"])
+def test_env_make_if_available(env_id):
     gym_spec = importlib.util.find_spec("gymnasium")
     ms_spec = importlib.util.find_spec("mani_skill")
     if gym_spec is None or ms_spec is None:
@@ -17,7 +18,7 @@ def test_env_make_if_available():
     maniskill_myws.register()
     try:
         env = gym.make(
-            "TurnGlobeValve-v1",
+            env_id,
             obs_mode="state",
             reward_mode="none",
             render_mode=None,
@@ -29,4 +30,3 @@ def test_env_make_if_available():
         raise
     env.reset(seed=0)
     env.close()
-

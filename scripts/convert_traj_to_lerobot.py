@@ -17,9 +17,9 @@ Example:
   python scripts/convert_traj_to_lerobot.py \\
     --h5-glob "data/demos/**/*.h5" \\
     --repo-id "local/maniskill_turn_globe_valve" \\
-    --image-key "obs/sensors/base_camera/rgb" \\
-    --wrist-image-key "obs/sensors/wrist_camera/rgb" \\
-    --state-keys "obs/extra/tcp_pose" \\
+    --image-key "obs/sensor_data/base_camera/rgb" \\
+    --wrist-image-key "obs/sensor_data/hand_camera/rgb" \\
+    --state-keys "obs/agent/qpos" "obs/agent/qvel" "obs/extra/tcp_pose" \\
     --actions-key "actions" \\
     --task-from env_default
 """
@@ -116,18 +116,22 @@ def _ensure_myws_importable(myws_root: str | None) -> None:
         sys.path.insert(0, str(src_path))
 
 
-def _get_prompt_from_mapping(env_id: str, *, myws_root: str | None) -> str | None:
+def _get_prompt_from_mapping(
+    env_id: str, *, myws_root: str | None, variant: str | None = None
+) -> str | None:
     _ensure_myws_importable(myws_root)
     try:
         from maniskill_myws.task_prompts import get_task_prompt
 
-        return get_task_prompt(env_id)
+        return get_task_prompt(env_id, variant=variant)
     except Exception:
         return None
 
 
-def _get_default_prompt_from_env_id(env_id: str, *, myws_root: str | None) -> str:
-    prompt = _get_prompt_from_mapping(env_id, myws_root=myws_root)
+def _get_default_prompt_from_env_id(
+    env_id: str, *, myws_root: str | None, variant: str | None = None
+) -> str:
+    prompt = _get_prompt_from_mapping(env_id, myws_root=myws_root, variant=variant)
     if prompt:
         return prompt
     _ensure_myws_importable(myws_root)
@@ -164,7 +168,12 @@ def _read_env_id_from_json(h5_path: Path) -> str | None:
 
 
 def _infer_task_for_h5(
-    h5_path: Path, *, mode: str, fixed_task: str, myws_root: str | None
+    h5_path: Path,
+    *,
+    mode: str,
+    fixed_task: str,
+    myws_root: str | None,
+    episode_key: str | None = None,
 ) -> str:
     """
     Infer per-file task string for multi-task training.
@@ -172,7 +181,7 @@ def _infer_task_for_h5(
     - fixed: always use fixed_task
     - filename: use file stem (without extension)
     - json_env_id: read sibling .json (RecordEpisode metadata) and use env_info.env_id
-    - env_default: read sibling .json env_id and map to task.DEFAULT_TASK_PROMPT
+    - env_default: read sibling .json env_id and map to a stable task prompt
     """
     if mode == "fixed":
         return fixed_task
@@ -187,7 +196,9 @@ def _infer_task_for_h5(
             raise SystemExit(
                 f"Missing env_id in {h5_path.with_suffix('.json')}; required for --task-from env_default."
             )
-        return _get_default_prompt_from_env_id(env_id, myws_root=myws_root)
+        return _get_default_prompt_from_env_id(
+            env_id, myws_root=myws_root, variant=episode_key
+        )
     raise ValueError(f"Unknown --task-from: {mode}")
 
 
@@ -232,7 +243,7 @@ def main() -> None:
         help=(
             "How to populate the LeRobot 'task' field. "
             "'json_env_id' reads the sibling RecordEpisode .json's env_info.env_id. "
-            "'env_default' maps env_id to task.DEFAULT_TASK_PROMPT."
+            "'env_default' maps env_id to a stable prompt variant from maniskill_myws.task_prompts."
         ),
     )
     parser.add_argument("--push-to-hub", action="store_true")
@@ -317,13 +328,17 @@ def main() -> None:
     # Write episodes.
     for h5_path in h5_files:
         h5_path = Path(h5_path)
-        task_str = _infer_task_for_h5(
-            h5_path, mode=args.task_from, fixed_task=args.task, myws_root=args.myws_root
-        )
         with h5py.File(str(h5_path), "r") as f:
             trajs = sorted([k for k in f.keys() if k.startswith("traj_")])
             traj_keys = trajs if trajs else [None]
             for tk in traj_keys:
+                task_str = _infer_task_for_h5(
+                    h5_path,
+                    mode=args.task_from,
+                    fixed_task=args.task,
+                    myws_root=args.myws_root,
+                    episode_key=f"{h5_path.stem}:{tk or 'root'}",
+                )
                 g = f if tk is None else f[tk]
                 if "obs" not in g:
                     raise SystemExit(
@@ -362,5 +377,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
