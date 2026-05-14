@@ -22,25 +22,25 @@ from maniskill_myws.task_prompts import TASK_PROMPTS
 _Q_BEAM_Y: list[float] = [math.sqrt(2.0) / 2.0, 0.0, 0.0, math.sqrt(2.0) / 2.0]
 
 
-@register_env("TakeSafetyHook-v1", max_episode_steps=200)
-class TakeSafetyHookEnv(BaseEnv):
+@register_env("TakeSafetyHook-v2", max_episode_steps=200)
+class TakeSafetyHookEnv2(BaseEnv):
     """
-    Tabletop task: take a safety hook from a fixed horizontal rod.
+    Tabletop task: pick up a safety hook from the table and hang it onto a horizontal beam.
 
     Scene:
       - Panda mounted at a fixed pose relative to the table
-      - A horizontal rod is placed in front of the robot with small pose randomization
-      - Safety hook is loaded as a free-root articulation and randomized along
-        different positions on the rod
+      - A horizontal beam is placed in front of the robot with small pose randomization
+      - Safety hook spawns on the table with X offset from beam_center_x
 
     Success:
-      - Current proxy keeps the existing gate-opening progress criterion
+      - Hook is hung on the beam (frame_link close to expected hanging pose)
+      - Gate joint is opened past the progress threshold
     """
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
     SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
     agent: Panda
-    DEFAULT_TASK_PROMPT = TASK_PROMPTS["TakeSafetyHook-v1"]
+    DEFAULT_TASK_PROMPT = TASK_PROMPTS["TakeSafetyHook-v2"]
 
     ROBOT_HOME_QPOS_PANDA = np.array(
         [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
@@ -56,10 +56,9 @@ class TakeSafetyHookEnv(BaseEnv):
         *args,
         robot_uids="panda_wristcam",
         robot_init_qpos_noise: float = 0.02,
-        hook_init_qpos_noise: float = 0.1,
         success_threshold: float = np.pi / 4,
-        beam_length: float = 0.7,
-        beam_radius: float = 0.005,
+        beam_length: float = 0.36,
+        beam_radius: float = 0.007,
         beam_center_x: float = -0.03,
         beam_center_y: float = 0.0,
         beam_center_z: float = 0.3,
@@ -67,19 +66,20 @@ class TakeSafetyHookEnv(BaseEnv):
         beam_center_y_noise: float = 0.015,
         beam_center_z_noise: float = 0.02,
         beam_yaw_noise: float = math.radians(5),
-        hook_on_beam_y_range: float = 0.18,
         hook_rod_local_x: float = 0.0,
         hook_top_local_z: float = 0.002,
         hook_rod_clearance: float = 0.002,
-        hook_xy_noise: float | None = None,
-        hook_yaw_noise: float | None = None,
+        hook_table_x_offset: float = 0.08,
+        hook_table_xy_noise: float = 0.03,
+        hook_table_y_range: float = 0.1,
+        hook_hung_xy_tol: float = 0.04,
+        hook_hung_z_tol: float = 0.04,
         beam_x_range: tuple[float, float] | None = None,
         beam_y_range: tuple[float, float] | None = None,
         beam_z_range: tuple[float, float] | None = None,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
-        self.hook_init_qpos_noise = hook_init_qpos_noise
         self.success_threshold = float(success_threshold)
 
         if beam_x_range is not None:
@@ -91,10 +91,6 @@ class TakeSafetyHookEnv(BaseEnv):
         if beam_z_range is not None:
             beam_center_z = sum(beam_z_range) / 2.0
             beam_center_z_noise = abs(beam_z_range[1] - beam_z_range[0]) / 2.0
-        if hook_xy_noise is not None:
-            hook_on_beam_y_range = hook_xy_noise
-        if hook_yaw_noise is not None:
-            beam_yaw_noise = hook_yaw_noise
 
         self.beam_length = float(beam_length)
         self.beam_radius = float(beam_radius)
@@ -105,13 +101,14 @@ class TakeSafetyHookEnv(BaseEnv):
         self.beam_center_y_noise = abs(float(beam_center_y_noise))
         self.beam_center_z_noise = abs(float(beam_center_z_noise))
         self.beam_yaw_noise = abs(float(beam_yaw_noise))
-        usable_half_length = max(self.beam_length / 2.0 - 0.04, 0.0)
-        self.hook_on_beam_y_range = min(
-            abs(float(hook_on_beam_y_range)), usable_half_length
-        )
         self.hook_rod_local_x = float(hook_rod_local_x)
         self.hook_top_local_z = float(hook_top_local_z)
         self.hook_rod_clearance = float(hook_rod_clearance)
+        self.hook_table_x_offset = float(hook_table_x_offset)
+        self.hook_table_xy_noise = abs(float(hook_table_xy_noise))
+        self.hook_table_y_range = abs(float(hook_table_y_range))
+        self.hook_hung_xy_tol = abs(float(hook_hung_xy_tol))
+        self.hook_hung_z_tol = abs(float(hook_hung_z_tol))
 
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
@@ -159,19 +156,19 @@ class TakeSafetyHookEnv(BaseEnv):
             hook_builder = articulation_builders[0]
             hook_builder.set_scene_idxs(torch.arange(self.num_envs, dtype=torch.int32))
             hook_builder.disable_self_collisions = loader.disable_self_collisions
-            # Keep the temporary build pose close to the later randomized spawn to avoid startup collisions.
+            # Build pose: on the table near the beam
             hook_builder.initial_pose = sapien.Pose(
-                p=[self._hook_origin_x, self.beam_center_y, self._hook_origin_z],
+                p=[self.beam_center_x - self.hook_table_x_offset, self.beam_center_y, 0.05],
                 q=[0, 1, 0, 0],  # 180 deg around X: flip hook right-side up
             )
             self.hook: Articulation = hook_builder.build()
 
         self.gate_joint = self.hook.active_joints_map["joint_bar"]
-        self.gate_joint.set_drive_properties(150.0, 15.0)
-        self.gate_joint.set_drive_target(-0.02)
-        self.gate_joint.set_friction(0.1)
+        self.gate_joint.set_drive_properties(1.0, 0.1)
+        self.gate_joint.set_drive_target(0.05)
+        self.gate_joint.set_friction(0.01)
 
-        # beam: thin horizontal cylinder in mid-air, static/kinematic
+        # beam: horizontal cylinder in mid-air (static), with wall-mount brackets
         beam_builder = self.scene.create_actor_builder()
         beam_builder.initial_pose = sapien.Pose(
             p=[self.beam_center_x, self.beam_center_y, self.beam_center_z]
@@ -187,7 +184,18 @@ class TakeSafetyHookEnv(BaseEnv):
             half_length=self.beam_length / 2,
             material=sapien.render.RenderMaterial(base_color=[0.12, 0.36, 0.85, 1.0]),
         )
-        self.beam = beam_builder.build_kinematic(name="beam")
+        half_len = self.beam_length / 2
+        for sign in (-1, +1):
+            beam_builder.add_box_collision(
+                pose=sapien.Pose(p=[0.0, sign * (half_len + 0.015), 0.0]),
+                half_size=[0.018, 0.015, 0.030],
+            )
+            beam_builder.add_box_visual(
+                pose=sapien.Pose(p=[0.0, sign * (half_len + 0.015), 0.0]),
+                half_size=[0.018, 0.015, 0.030],
+                material=sapien.render.RenderMaterial(base_color=[0.12, 0.36, 0.85, 1.0]),
+            )
+        self.beam = beam_builder.build_static(name="beam")
 
     @property
     def _hook_origin_x(self) -> float:
@@ -263,31 +271,22 @@ class TakeSafetyHookEnv(BaseEnv):
             beam_q[:, 3] = torch.sin(half_yaw)
             self.beam.set_pose(Pose.create_from_pq(beam_p, beam_q))
 
-            # Randomize the hook at different positions along the randomized rod.
-            rod_offset = randomization.uniform(
-                -self.hook_on_beam_y_range,
-                self.hook_on_beam_y_range,
+            # Hook spawns on the table with X offset from beam center + noise.
+            hook_p = torch.zeros((b, 3), device=self.device)
+            hook_p[:, 0] = beam_p[:, 0] - self.hook_table_x_offset + randomization.uniform(
+                -self.hook_table_xy_noise,
+                self.hook_table_xy_noise,
                 size=(b,),
                 device=self.device,
             )
-            cos_yaw = torch.cos(beam_yaw)
-            sin_yaw = torch.sin(beam_yaw)
-            rod_axis_x = -sin_yaw
-            rod_axis_y = cos_yaw
-            rod_target_x = beam_p[:, 0] + rod_axis_x * rod_offset
-            rod_target_y = beam_p[:, 1] + rod_axis_y * rod_offset
-            rod_target_z = beam_p[:, 2] - self.beam_radius - self.hook_rod_clearance
-
-            hook_p = torch.zeros((b, 3), device=self.device)
-            hook_p[:, 0] = rod_target_x - cos_yaw * self.hook_rod_local_x
-            hook_p[:, 1] = rod_target_y - sin_yaw * self.hook_rod_local_x
-            hook_p[:, 2] = rod_target_z - self.hook_top_local_z
-            # hook_q = beam_q * q_flip_x, where q_flip_x = [0, 1, 0, 0] (180° around X)
-            hook_w = -beam_q[:, 1]  # w1*x2 -> beam_w*0 - beam_x*1 = -beam_x
-            hook_x = beam_q[:, 0]  # w1*x2 + x1*w2 -> beam_w*1 + beam_x*0 = beam_w
-            hook_y = beam_q[:, 3]  # w1*y2 + ... -> beam_z
-            hook_z = -beam_q[:, 2]  # ... -> -beam_y
-            hook_q = torch.stack([hook_w, hook_x, hook_y, hook_z], dim=-1)
+            hook_p[:, 1] = beam_p[:, 1] + randomization.uniform(
+                -self.hook_table_y_range,
+                self.hook_table_y_range,
+                size=(b,),
+                device=self.device,
+            )
+            hook_p[:, 2] = 0.05  # slightly above table, will settle
+            hook_q = torch.tensor([0.5, 0.5, 0.5, 0.5], device=self.device, dtype=torch.float32).expand(b, 4)
             self.hook.set_pose(Pose.create_from_pq(hook_p, hook_q))
 
             qpos0 = torch.full((b, 1), 0.05, device=self.device)
@@ -297,13 +296,36 @@ class TakeSafetyHookEnv(BaseEnv):
             self._hook_qpos_prev = qpos0[:, 0].clone()
 
     def evaluate(self):
+        hook_p = self.hook.pose.p
+        beam_p = self.beam.pose.p
+        if hook_p.ndim == 1:
+            hook_p = hook_p.unsqueeze(0)
+        if beam_p.ndim == 1:
+            beam_p = beam_p.unsqueeze(0)
+
+        # Expected hung position of hook frame_link relative to beam
+        hung_x = beam_p[:, 0] - self.hook_rod_local_x
+        hung_y = beam_p[:, 1]
+        hung_z = beam_p[:, 2] - self.beam_radius - self.hook_rod_clearance - self.hook_top_local_z
+
+        is_hung = (
+            (torch.abs(hook_p[:, 0] - hung_x) < self.hook_hung_xy_tol)
+            & (torch.abs(hook_p[:, 1] - hung_y) < self.hook_hung_xy_tol)
+            & (torch.abs(hook_p[:, 2] - hung_z) < self.hook_hung_z_tol)
+        )
+
+        # Gate progress (keep original logic)
         gate_qpos = self.gate_joint.qpos
-        # We do a simple proxy for now; later change to beam-hang detection by keypoints.
-        progress = torch.clamp((gate_qpos - 1.57) / (2.35 - 1.57), 0.0, 1.0)
-        success = progress >= torch.tensor(0.75, device=self.device)
+        if gate_qpos.ndim == 1:
+            gate_qpos = gate_qpos.unsqueeze(0)
+        progress = torch.clamp((gate_qpos[:, 0] - 1.57) / (2.35 - 1.57), 0.0, 1.0)
+        gate_open = progress >= 0.75
+
+        success = is_hung & gate_open
 
         return {
             "success": success,
+            "is_hung": is_hung,
             "progress": progress,
             "hook_qpos": gate_qpos,
             "beam_pose": self.beam.pose.raw_pose,
@@ -314,6 +336,7 @@ class TakeSafetyHookEnv(BaseEnv):
             tcp_pose=self.agent.tcp.pose.raw_pose,
             hook_qpos=self.gate_joint.qpos,
             gate_progress=info.get("progress"),
+            is_hung=info.get("is_hung"),
         )
         if "state" in self.obs_mode:
             obs["hook_pose"] = self.hook.pose.raw_pose

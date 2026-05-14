@@ -8,7 +8,9 @@ from .stack_cube_v2 import StackCubeV2Env
 from .sweep_solar_panel import SolarPanelStaticEnv
 from .take_safety_hook import TakeSafetyHookEnv
 from .turn_globe_valve import TurnGlobeValveEnv
-from .open_safe_door3 import OpenSafeDoor3Env
+#from .open_safe_door3 import OpenSafeDoor3Env
+from .sweep_solar_panel2 import SolarPanelStaticEnv2
+from .take_safety_hook2 import TakeSafetyHookEnv2
 
 __all__ = [
     "BrushSolarPanelEnv",
@@ -19,6 +21,8 @@ __all__ = [
     "StackCubeV2Env",
     "TakeSafetyHookEnv",
     "TurnGlobeValveEnv",
-    "OpenSafeDoor3Env"
+#    "OpenSafeDoor3Env",
+    "SolarPanelStaticEnv2",
+    "TakeSafetyHookEnv2",
 ]
 

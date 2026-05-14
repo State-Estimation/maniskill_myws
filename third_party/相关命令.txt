@@ -14,7 +14,8 @@ python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
   --save-video \
   --save-traj \
   --use-first-env-state \
-  --render-mode sensors
+  --render-mode sensors \
+  --allow_failure
 
 进入 merge 状态:
 git merge origin/main --no-commit --no-ff

@@ -31,7 +31,7 @@
       <material
         name="">
         <color
-          rgba="0.68627 0.65882 0.63922 1" />
+          rgba="0.2 1.0 0.2 1" />
       </material>
     </visual>
     <collision>
@@ -125,7 +125,7 @@
       <material
         name="">
         <color
-          rgba="0.68627 0.65882 0.63922 1" />
+          rgba="1.0 0.2 0.2 1" />
       </material>
     </visual>
     <collision>
@@ -151,7 +151,7 @@
     <axis
       xyz="0 1 0" />
     <limit
-      lower="0"
+      lower="0.09"
       upper="-0.56"
       effort="0"
       velocity="0" />

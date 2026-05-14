@@ -4,6 +4,8 @@
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
   name="brush">
+  <!-- <link
+    name="world" /> -->
   <link
     name="base_link">
     <inertial>
@@ -23,10 +25,10 @@
     <visual>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="-1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://brush/meshes/base_link.STL" />
+          filename="package://brush/meshes/brush2.STL" />
       </geometry>
       <material
         name="">
@@ -37,47 +39,67 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="-1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://brush/meshes/brush_part_0.glb" />
+          filename="package://brush/meshes/brush2/part_0.glb" />
       </geometry>
     </collision>
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="-1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://brush/meshes/brush_part_1.glb" />
+          filename="package://brush/meshes/brush2/part_1.glb" />
       </geometry>
     </collision>
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="-1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://brush/meshes/brush_part_2.glb" />
+          filename="package://brush/meshes/brush2/part_2.glb" />
       </geometry>
     </collision>
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="-1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://brush/meshes/brush_part_3.glb" />
+          filename="package://brush/meshes/brush2/part_3.glb" />
       </geometry>
     </collision>
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="-1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://brush/meshes/brush_part_4.glb" />
+          filename="package://brush/meshes/brush2/part_4.glb" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="-1.5708 0 0" />
+      <geometry>
+        <mesh
+          filename="package://brush/meshes/brush2/part_5.glb" />
       </geometry>
     </collision>
   </link>
+  <!-- <joint
+    name="world_to_base_link"
+    type="fixed">
+    <parent
+      link="world" />
+    <child
+      link="base_link" />
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+  </joint> -->
 </robot>

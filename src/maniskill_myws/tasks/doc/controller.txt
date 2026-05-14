@@ -1,0 +1,18 @@
+eg:
+/home/firedust/miniconda3/envs/maniskill_temp/lib/python3.10/site-packages/mani_skill/agents/robots/panda/panda.py
+
+rot_lower -0.1 -> -0.5
+rot_upper 0.1 -> 0.5
+
+arm_pd_ee_delta_pose = PDEEPoseControllerConfig(
+            joint_names=self.arm_joint_names,
+            pos_lower=-0.1,
+            pos_upper=0.1,
+            rot_lower=-0.5,
+            rot_upper=0.5,
+            stiffness=self.arm_stiffness,
+            damping=self.arm_damping,
+            force_limit=self.arm_force_limit,
+            ee_link=self.ee_link_name,
+            urdf_path=self.urdf_path,
+        )

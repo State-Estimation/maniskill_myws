@@ -13,7 +13,6 @@ authors = [{ name = "bitqjy" }]
 
 # Keep core deps light; in local-source workflows ManiSkill/SAPIEN/PyTorch are installed separately (conda / source).
 dependencies = [
-  "coacd>=1.0.7",
   "numpy==1.26.4",
   "websockets>=16.0",
 ]
@@ -25,6 +24,7 @@ runtime = [
   "mani_skill",
   "matplotlib>=3.7",
   "PyYAML>=6",
+  "pin-pink",
   "pytorch_kinematics_ms",
 ]
 dev = [

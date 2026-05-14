@@ -18,7 +18,7 @@ from mani_skill.utils.structs.types import SimConfig, SceneConfig
 from maniskill_myws.task_prompts import TASK_PROMPTS
 
 
-@register_env("TurnGlobeValve-v1", max_episode_steps=200)
+@register_env("TurnGlobeValve-v1", max_episode_steps=500)
 class TurnGlobeValveEnv(BaseEnv):
     """
     Tabletop task: turn a fixed globe valve with a Panda arm.
@@ -46,8 +46,8 @@ class TurnGlobeValveEnv(BaseEnv):
         valve_yaw_noise: float = np.pi / 6,
         valve_init_qpos_noise: float = np.pi,
         success_threshold: float = np.pi,
-        handwheel_friction: float = 1.0,
-        handwheel_damping: float = 10.0,
+        handwheel_friction: float = 0.6,
+        handwheel_damping: float = 5.0,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -72,7 +72,7 @@ class TurnGlobeValveEnv(BaseEnv):
 
     @property
     def _default_human_render_camera_configs(self):
-        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
+        pose = sapien_utils.look_at([0.4, 0.2, 0.4], [0.0, 0.0, 0.2])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1)
 
     def _load_agent(self, options: dict):

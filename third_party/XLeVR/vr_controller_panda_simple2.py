@@ -219,11 +219,11 @@ def calculate_action(goal, prev_vr_pos, prev_vr_rot, clutch_engaged, coord_trans
 # Main
 # =========================
 
-list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2", "SolarPanelStatic-v1", "TakeSafetyHook-v1", "TurnGlobeValve-v2"]
+list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2", "SolarPanelStatic-v2", "TakeSafetyHook-v1", "TurnGlobeValve-v1"]
 
 @dataclass
 class Args:
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "OpenSafeDoor-v2"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "SolarPanelStatic-v2"
     obs_mode: str = "rgb"
     robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam"
     record_dir: str = "demos2"
@@ -271,8 +271,8 @@ def start_vr_thread():
 
 def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
     coord_transform = np.array([
-        [0, 0, -1],
-        [-1, 0, 0],
+        [0, 0, 1],
+        [1, 0, 0],
         [0, 1, 0],
     ])
     prev_vr_pos = None
@@ -342,7 +342,7 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
             num_trajs += 1
             seed += 1
             #env.base_env.sim_config = SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
-            env.reset(seed=seed)
+            env.reset(seed=seed, options={"reconfigure": True})
             env.base_env.render_human()
             
     env.close()
@@ -351,7 +351,8 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
 
 def main(args: Args):
     env = create_environment(args)
-    env.reset(seed=0)
+    env.reset(seed=0,options={"reconfigure": True})
+
     
     latest_goal, vr_thread = start_vr_thread()
 

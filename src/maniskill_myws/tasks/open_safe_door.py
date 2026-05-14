@@ -8,10 +8,10 @@ import numpy as np
 import sapien
 import torch
 
-from mani_skill.agents.robots import Panda
+from mani_skill.agents.robots import Panda, PandaWristCam
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.utils import randomization
-from mani_skill.sensors.camera import CameraConfig
+from mani_skill.sensors.camera import CameraConfig, Union
 from mani_skill.utils import sapien_utils
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
@@ -37,7 +37,7 @@ class OpenSafeDoorEnv(BaseEnv):
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
     SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
-    agent: Panda
+    agent: Union[Panda, PandaWristCam]
     DEFAULT_TASK_PROMPT = TASK_PROMPTS["OpenSafeDoor-v1"]
 
     # Joint semantics from mobility_v2.json:

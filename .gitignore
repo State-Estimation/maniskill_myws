@@ -224,9 +224,9 @@ outputs/
 
 uv.lock
 .python-version
-third_party/XLeVR/README.md
 third_party/XLeVR/xlevr/inputs/vr_ws_server.py
 
 third_party/XLeVR/hdf5-trajectory/
 
 render_output/
+third_party/XLeVR/project_plan
