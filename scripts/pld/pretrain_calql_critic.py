@@ -11,12 +11,13 @@ import numpy as np
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "src"))
-
-from maniskill_myws.pld import train_common as common
 
 
 def main() -> None:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+
+    from maniskill_myws.pld import train_common as common
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-id", type=str, default="OpenSafeDoor-v2")
     common.add_offline_replay_args(parser)
@@ -49,7 +50,6 @@ def main() -> None:
     args = parser.parse_args()
 
     common.prepare_runtime(args.seed, register_envs=False)
-    import torch
 
     from maniskill_myws.pld.sac import ResidualSAC, SACConfig
 
