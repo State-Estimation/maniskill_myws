@@ -218,7 +218,7 @@ def main() -> None:
     )
     parser.add_argument("--repo-id", type=str, required=True)
     parser.add_argument("--robot-type", type=str, default="panda")
-    parser.add_argument("--fps", type=int, default=10)
+    parser.add_argument("--fps", type=int, default=20)
     parser.add_argument("--image-key", type=str, required=True, help="H5 path inside traj group (no leading slash)")
     parser.add_argument(
         "--wrist-image-key",

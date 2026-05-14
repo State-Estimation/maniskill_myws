@@ -60,6 +60,11 @@ def main() -> None:
         default=None,
         help="Maximum rollout steps. Defaults to the environment's max_episode_steps.",
     )
+    p.add_argument(
+        "--real-time",
+        action="store_true",
+        help="Forward --real-time pacing to each seed rollout.",
+    )
     
     # Observation keys
     p.add_argument("--image-key", type=str, default="sensor_data/base_camera/rgb")
@@ -122,6 +127,8 @@ def main() -> None:
         ]
         if args.max_steps is not None:
             cmd += ["--max-steps", str(args.max_steps)]
+        if args.real_time:
+            cmd += ["--real-time"]
         
         if args.state_keys:
             cmd += ["--state-keys"] + args.state_keys
