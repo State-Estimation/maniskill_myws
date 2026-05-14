@@ -821,6 +821,122 @@ class ResidualSAC:
         self.q1_target.load_state_dict(payload.get("q1_target", payload["q1"]))
         self.q2_target.load_state_dict(payload.get("q2_target", payload["q2"]))
 
+    def _visual_modules(self) -> dict[str, nn.Module]:
+        modules: dict[str, nn.Module] = {}
+        for name, model in (
+            ("actor", self.actor),
+            ("q1", self.q1),
+            ("q2", self.q2),
+            ("q1_target", self.q1_target),
+            ("q2_target", self.q2_target),
+        ):
+            visual = model.obs_encoder.visual
+            if visual is not None:
+                modules[name] = visual
+        return modules
+
+    @staticmethod
+    def _strip_visual_prefix(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        prefixes = (
+            "actor.obs_encoder.visual.",
+            "q1.obs_encoder.visual.",
+            "q2.obs_encoder.visual.",
+            "obs_encoder.visual.",
+            "visual.",
+        )
+        stripped: dict[str, torch.Tensor] = {}
+        for key, value in state_dict.items():
+            if not torch.is_tensor(value):
+                continue
+            out_key = key
+            for prefix in prefixes:
+                if key.startswith(prefix):
+                    out_key = key[len(prefix) :]
+                    break
+            stripped[out_key] = value
+        return stripped
+
+    @staticmethod
+    def _extract_visual_state_dict(payload: dict[str, Any]) -> dict[str, torch.Tensor]:
+        for top_key in (
+            "visual",
+            "actor",
+            "q1",
+            "q2",
+            "q1_target",
+            "q2_target",
+            "state_dict",
+            "model_state_dict",
+        ):
+            value = payload.get(top_key)
+            if isinstance(value, dict):
+                state = {
+                    key[len("obs_encoder.visual.") :]: tensor
+                    for key, tensor in value.items()
+                    if key.startswith("obs_encoder.visual.") and torch.is_tensor(tensor)
+                }
+                if state:
+                    return state
+                stripped = ResidualSAC._strip_visual_prefix(value)
+                if stripped:
+                    return stripped
+
+        raw_state = {
+            key: value
+            for key, value in payload.items()
+            if isinstance(key, str) and torch.is_tensor(value)
+        }
+        if raw_state:
+            return ResidualSAC._strip_visual_prefix(raw_state)
+        raise ValueError("Could not find visual encoder weights in checkpoint payload")
+
+    @staticmethod
+    def _compatible_state_dict(
+        module: nn.Module, state_dict: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
+        target = module.state_dict()
+        compatible: dict[str, torch.Tensor] = {}
+        for key, value in state_dict.items():
+            if key in target and tuple(target[key].shape) == tuple(value.shape):
+                compatible[key] = value
+        return compatible
+
+    def load_visual_encoder(self, path: str | Path) -> dict[str, int]:
+        """
+        Load a visual encoder checkpoint into actor and critics.
+
+        The checkpoint may be a full ResidualSAC checkpoint, an actor-only
+        checkpoint, or a raw visual state_dict. Only shape-compatible visual
+        encoder tensors are loaded, so checkpoints with a different projection
+        head can still initialize the shared convolutional trunk.
+        """
+        try:
+            payload: dict[str, Any] = torch.load(path, map_location=self.device, weights_only=False)
+        except TypeError:  # Older torch versions do not expose weights_only.
+            payload = torch.load(path, map_location=self.device)
+        if not isinstance(payload, dict):
+            raise ValueError(f"Expected checkpoint dict in {path}")
+        visual_state = self._extract_visual_state_dict(payload)
+        loaded: dict[str, int] = {}
+        for name, module in self._visual_modules().items():
+            compatible = self._compatible_state_dict(module, visual_state)
+            if not compatible:
+                loaded[name] = 0
+                continue
+            module.load_state_dict(compatible, strict=False)
+            loaded[name] = len(compatible)
+        return loaded
+
+    def init_actor_visual_from_critic(self, source: str = "q1") -> bool:
+        """Initialize the actor visual encoder from a loaded critic visual encoder."""
+        modules = self._visual_modules()
+        actor_visual = modules.get("actor")
+        source_visual = modules.get(source)
+        if actor_visual is None or source_visual is None:
+            return False
+        actor_visual.load_state_dict(source_visual.state_dict())
+        return True
+
     def save_actor(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

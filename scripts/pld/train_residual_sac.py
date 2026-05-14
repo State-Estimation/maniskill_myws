@@ -298,6 +298,23 @@ def main() -> None:
         default=None,
         help="Optional actor-only or full ResidualSAC checkpoint used to initialize the actor.",
     )
+    parser.add_argument(
+        "--visual-encoder-checkpoint",
+        type=str,
+        default=None,
+        help=(
+            "Optional pretrained ResNetV1-10/visual encoder checkpoint. "
+            "Loaded into actor and critics before other checkpoint initialization."
+        ),
+    )
+    parser.add_argument(
+        "--no-init-actor-visual-from-critic",
+        action="store_true",
+        help=(
+            "Do not copy the loaded critic visual encoder into the actor after "
+            "--init-critic-checkpoint. By default visual actor init follows the critic."
+        ),
+    )
     parser.add_argument("--offline-pretrain-updates", type=int, default=1_000)
     parser.add_argument("--updates-per-env-step", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -610,9 +627,23 @@ def main() -> None:
         ),
         device=device,
     )
+    if args.visual_encoder_checkpoint:
+        loaded = agent.load_visual_encoder(args.visual_encoder_checkpoint)
+        print(
+            "loaded visual encoder checkpoint:",
+            dict(path=args.visual_encoder_checkpoint, tensors=loaded),
+            flush=True,
+        )
     if args.init_critic_checkpoint:
         agent.load_critics(args.init_critic_checkpoint)
         print("loaded critic checkpoint:", args.init_critic_checkpoint, flush=True)
+        if args.use_visual_rl and not args.no_init_actor_visual_from_critic:
+            copied = agent.init_actor_visual_from_critic(source="q1")
+            print(
+                "initialized actor visual encoder from critic:",
+                dict(enabled=True, copied=bool(copied), source="q1"),
+                flush=True,
+            )
     if args.init_actor_checkpoint:
         agent.load_actor(args.init_actor_checkpoint)
         print("loaded actor checkpoint:", args.init_actor_checkpoint, flush=True)
