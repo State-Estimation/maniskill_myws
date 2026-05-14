@@ -221,7 +221,22 @@ data/demos/
 # Videos
 vedios/
 outputs/
+*.mp4
 
+# Model and dataset artifacts
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.pb
+*.tflite
+*.bin
+*.pkl
+*.joblib
+*.json
 uv.lock
 .python-version
 third_party/XLeVR/xlevr/inputs/vr_ws_server.py

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+import os
 from pathlib import Path
 import sys
 import time
@@ -261,6 +262,15 @@ def main() -> None:
     parser.add_argument("--resize", type=int, default=224)
 
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--env-device",
+        type=str,
+        default=None,
+        help=(
+            "Optional ManiSkill environment device, e.g. 'cuda:1'. "
+            "Use this separately from --device when the base policy server is on another GPU."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--total-env-steps", type=int, default=250_000)
     parser.add_argument(
@@ -272,6 +282,21 @@ def main() -> None:
             "'calql' updates only the critics with Cal-QL and leaves the "
             "residual actor randomly initialized."
         ),
+    )
+    parser.add_argument(
+        "--init-critic-checkpoint",
+        type=str,
+        default=None,
+        help=(
+            "Optional ResidualSAC checkpoint whose q1/q2 critics initialize the current "
+            "agent before offline/online training. Useful for reusing Cal-QL-pretrained critics."
+        ),
+    )
+    parser.add_argument(
+        "--init-actor-checkpoint",
+        type=str,
+        default=None,
+        help="Optional actor-only or full ResidualSAC checkpoint used to initialize the actor.",
     )
     parser.add_argument("--offline-pretrain-updates", type=int, default=1_000)
     parser.add_argument("--updates-per-env-step", type=int, default=1)
@@ -360,6 +385,7 @@ def main() -> None:
 
     parser.add_argument("--output-dir", type=str, default="outputs/pld/OpenSafeDoor-v2")
     parser.add_argument("--checkpoint-name", type=str, default="residual_sac.pt")
+    parser.add_argument("--actor-checkpoint-name", type=str, default="residual_actor.pt")
     parser.add_argument("--wandb-enabled", action="store_true", default=False)
     parser.add_argument("--wandb-project", type=str, default="maniskill-pld")
     parser.add_argument("--wandb-entity", type=str, default=None)
@@ -388,6 +414,7 @@ def main() -> None:
 
     import maniskill_myws
     from maniskill_myws.pld.h5_replay import find_h5_files, load_h5_replay
+    from maniskill_myws.pld.env_device import apply_env_device_kwargs
     from maniskill_myws.pld.policies import make_base_policy
     from maniskill_myws.pld.path_visualizer import TCPPathVisualizer, parse_rgba
     from maniskill_myws.pld.replay_buffer import ReplayBuffer, sample_offline_online
@@ -445,17 +472,38 @@ def main() -> None:
         raise SystemExit("--use-visual-rl was set, but no visual observations were loaded")
 
     device = torch.device(args.device if args.device == "cpu" or torch.cuda.is_available() else "cpu")
+    if device.type == "cuda" and device.index is not None:
+        torch.cuda.set_device(device)
+    cuda_info = {}
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        cuda_info = dict(
+            visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+            device_count=torch.cuda.device_count(),
+            current_device=current_device,
+            current_device_name=torch.cuda.get_device_name(current_device),
+        )
+    print(
+        "devices:",
+        dict(
+            rl_device=str(device),
+            env_device=args.env_device or "maniskill_default",
+            **cuda_info,
+        ),
+        flush=True,
+    )
     action_dim = offline_data.action_dim
     env = None
     if args.total_env_steps > 0:
         render_mode = _normalize_render_mode(args.render_mode)
-        env = gym.make(
-            args.env_id,
+        env_kwargs = dict(
             obs_mode=args.obs_mode,
             reward_mode=args.reward_mode,
             control_mode=args.control_mode,
             render_mode=render_mode,
         )
+        apply_env_device_kwargs(env_kwargs, args.env_device)
+        env = gym.make(args.env_id, **env_kwargs)
         low, high = _action_bounds(env.action_space, action_dim)
     else:
         render_mode = None
@@ -562,6 +610,12 @@ def main() -> None:
         ),
         device=device,
     )
+    if args.init_critic_checkpoint:
+        agent.load_critics(args.init_critic_checkpoint)
+        print("loaded critic checkpoint:", args.init_critic_checkpoint, flush=True)
+    if args.init_actor_checkpoint:
+        agent.load_actor(args.init_actor_checkpoint)
+        print("loaded actor checkpoint:", args.init_actor_checkpoint, flush=True)
 
     metrics: dict[str, float] = {}
     if args.offline_pretrain_method != "none":
@@ -585,14 +639,20 @@ def main() -> None:
                 )
     if args.total_env_steps <= 0:
         agent.save(ckpt_path)
+        actor_ckpt_path = output_dir / args.actor_checkpoint_name
+        agent.save_actor(actor_ckpt_path)
         _wandb_log(
             wandb_run,
             dict(
                 env_step=0,
-                **{"checkpoint/offline_pretrained": 1.0},
+                **{
+                    "checkpoint/offline_pretrained": 1.0,
+                    "checkpoint/actor_saved": 1.0,
+                },
             ),
         )
         print("saved offline-pretrained checkpoint:", ckpt_path)
+        print("saved actor checkpoint:", actor_ckpt_path)
         if wandb_run is not None:
             wandb_run.finish()
         return
@@ -748,7 +808,7 @@ def main() -> None:
                 metrics = agent.update(batch)
 
             if done or episode_steps >= max_episode_steps:
-                success = bool(np.asarray(info.get("success", False)).reshape(-1)[0])
+                success = bool(_to_numpy(info.get("success", False)).reshape(-1)[0])
                 current_episode_idx = episode_idx
                 is_warmup_episode = current_episode_idx < args.warmup_episodes
                 recent_successes.append(float(success))
@@ -871,26 +931,36 @@ def main() -> None:
             if env_step % max(1, args.save_every) == 0:
                 step_ckpt = output_dir / f"residual_sac_step_{env_step}.pt"
                 agent.save(step_ckpt)
+                agent.save_actor(output_dir / f"residual_actor_step_{env_step}.pt")
                 _wandb_log(
                     wandb_run,
                     dict(
                         env_step=env_step,
-                        **{"checkpoint/saved": 1.0},
+                        **{
+                            "checkpoint/saved": 1.0,
+                            "checkpoint/actor_saved": 1.0,
+                        },
                     ),
                 )
 
         agent.save(ckpt_path)
+        actor_ckpt_path = output_dir / args.actor_checkpoint_name
+        agent.save_actor(actor_ckpt_path)
         _wandb_log(
             wandb_run,
             dict(
                 env_step=args.total_env_steps,
-                **{"checkpoint/final": 1.0},
+                **{
+                    "checkpoint/final": 1.0,
+                    "checkpoint/actor_saved": 1.0,
+                },
             ),
         )
         if wandb_run is not None and wandb_run.run is not None:
             wandb_run.run.summary["checkpoint/final_path"] = str(ckpt_path)
             wandb_run.run.summary["checkpoint/final_env_step"] = args.total_env_steps
         print("saved:", ckpt_path)
+        print("saved actor:", actor_ckpt_path)
     finally:
         if env is not None:
             env.close()

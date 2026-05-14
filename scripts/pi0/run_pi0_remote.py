@@ -18,6 +18,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 import sys
+import time
 
 import numpy as np
 
@@ -67,6 +68,16 @@ def _close_video_writers(writers: dict) -> None:
             pass
 
 
+def _infer_control_dt(env, fallback_hz: float = 20.0) -> tuple[float, float]:
+    control_freq = getattr(env.unwrapped, "control_freq", None)
+    if control_freq is None:
+        control_freq = fallback_hz
+    control_freq = float(control_freq)
+    if control_freq <= 0:
+        control_freq = fallback_hz
+    return 1.0 / control_freq, control_freq
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--server", type=str, required=True, help="e.g. ws://127.0.0.1:8000")
@@ -113,6 +124,14 @@ def main() -> None:
         type=int,
         default=None,
         help="Maximum rollout steps. Defaults to the environment's max_episode_steps.",
+    )
+    p.add_argument(
+        "--real-time",
+        action="store_true",
+        help=(
+            "Throttle rollout to wall-clock real time using env.control_freq "
+            "(OpenSafeDoor-v2 defaults to 20Hz / 0.05s per step)."
+        ),
     )
 
     # Where to read images/state from the ManiSkill obs dict (keypaths from inspect_obs output).
@@ -196,6 +215,14 @@ def main() -> None:
     if max_steps is None:
         max_steps = 200
 
+    real_time_dt = None
+    if args.real_time:
+        real_time_dt, control_freq = _infer_control_dt(env)
+        print(
+            "real-time pacing:",
+            dict(control_freq_hz=control_freq, target_dt_s=real_time_dt),
+        )
+
     prompt = args.prompt
     if prompt is None:
         if hasattr(env.unwrapped, "DEFAULT_TASK_PROMPT"):
@@ -244,6 +271,7 @@ def main() -> None:
 
     try:
         for step in range(max_steps):
+            step_wall_start = time.perf_counter()
             act = policy.act(obs)
             traj_actions.append(np.asarray(act, dtype=np.float32))
 
@@ -299,6 +327,10 @@ def main() -> None:
                 path_visualizer.add_from_obs(obs, "residual")
             if terminated or truncated:
                 break
+            if real_time_dt is not None:
+                sleep_s = real_time_dt - (time.perf_counter() - step_wall_start)
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
     finally:
         _close_video_writers(video_writers)
 

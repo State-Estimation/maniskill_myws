@@ -78,6 +78,12 @@ def main() -> None:
     parser.add_argument("--resize", type=int, default=224)
 
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--env-device",
+        type=str,
+        default=None,
+        help="Optional ManiSkill environment device, e.g. 'cuda:1'.",
+    )
     parser.add_argument("--output-dir", type=str, default="data/pld/OpenSafeDoor-v2")
     parser.add_argument("--trajectory-name", type=str, default="pld_hybrid")
     parser.add_argument("--save-video", action="store_true")
@@ -92,6 +98,7 @@ def main() -> None:
     from mani_skill.utils.wrappers.record import RecordEpisode
 
     import maniskill_myws
+    from maniskill_myws.pld.env_device import apply_env_device_kwargs
     from maniskill_myws.pld.path_visualizer import TCPPathVisualizer, parse_rgba
     from maniskill_myws.pld.policies import make_base_policy
     from maniskill_myws.pld.sac import ResidualSAC
@@ -100,16 +107,19 @@ def main() -> None:
 
     maniskill_myws.register()
     device = torch.device(args.device if args.device == "cpu" or torch.cuda.is_available() else "cpu")
+    if device.type == "cuda" and device.index is not None:
+        torch.cuda.set_device(device)
     agent = ResidualSAC.load(args.checkpoint, device=device)
 
     render_mode = _normalize_render_mode(args.render_mode)
-    env = gym.make(
-        args.env_id,
+    env_kwargs = dict(
         obs_mode=args.obs_mode,
         reward_mode=args.reward_mode,
         control_mode=args.control_mode,
         render_mode="rgb_array" if args.save_video else render_mode,
     )
+    apply_env_device_kwargs(env_kwargs, args.env_device)
+    env = gym.make(args.env_id, **env_kwargs)
     env = RecordEpisode(
         env,
         output_dir=str(Path(args.output_dir)),
@@ -207,7 +217,7 @@ def main() -> None:
                 and action_source == "residual"
             ):
                 path_visualizer.add_from_obs(obs, "residual")
-            success = bool(np.asarray(info.get("success", False)).reshape(-1)[0])
+            success = bool(_to_numpy(info.get("success", False)).reshape(-1)[0])
             if _as_done(terminated) or _as_done(truncated):
                 break
 

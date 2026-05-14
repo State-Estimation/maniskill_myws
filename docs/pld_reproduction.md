@@ -188,6 +188,8 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --total-env-steps 250000 \
   --offline-pretrain-method calql \
   --offline-pretrain-updates 20000 \
+  --device cuda:1 \
+  --env-device cuda:1 \
   --use-visual-rl \
   --rl-image-size 128
 ```
@@ -197,6 +199,12 @@ smaller `--buffer-capacity`; full visual replay with two 128x128 cameras is much
 heavier than the default state-only replay. Warmup buffers are shape-specific:
 a state-only `.npz` warmup buffer cannot be reused when `--use-visual-rl` is
 enabled, because it does not contain RGB observations.
+
+When the OpenPI/base-policy server is already using GPU 0, run that server in a
+separate process bound to GPU 0 and put both residual SAC and the ManiSkill
+environment on GPU 1 with `--device cuda:1 --env-device cuda:1`. `--device`
+only controls the residual SAC torch modules; `--env-device` controls the
+ManiSkill simulation/render tensors.
 
 To reuse the base-policy warmup across runs, add a persistent warmup buffer path:
 

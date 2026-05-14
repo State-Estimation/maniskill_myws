@@ -78,7 +78,7 @@ def _to_uint8_hwc(image: np.ndarray) -> np.ndarray:
 def _build_state(obs_root: Any, t: int, state_keys: list[str]) -> np.ndarray:
     parts: list[np.ndarray] = []
     for k in state_keys:
-        a = np.asarray(_h5_get(obs_root, k))[t]
+        a = _h5_get(obs_root, k)[t]
         parts.append(np.asarray(a, dtype=np.float32).reshape(-1))
     if not parts:
         raise ValueError("state_keys is empty")
@@ -218,7 +218,7 @@ def main() -> None:
     )
     parser.add_argument("--repo-id", type=str, required=True)
     parser.add_argument("--robot-type", type=str, default="panda")
-    parser.add_argument("--fps", type=int, default=10)
+    parser.add_argument("--fps", type=int, default=20)
     parser.add_argument("--image-key", type=str, required=True, help="H5 path inside traj group (no leading slash)")
     parser.add_argument(
         "--wrist-image-key",
@@ -292,18 +292,18 @@ def main() -> None:
                     f"file={h5_files[0]} traj={trajs[0]} keys={list(g.keys())}"
                 )
             obs_g = g["obs"]
-            img0 = _to_uint8_hwc(np.asarray(_h5_get(g, args.image_key))[0])
-            wimg0 = _to_uint8_hwc(np.asarray(_h5_get(g, args.wrist_image_key))[0])
-            act0 = np.asarray(_h5_get(g, args.actions_key))[0].reshape(-1).astype(np.float32)
+            img0 = _to_uint8_hwc(_h5_get(g, args.image_key)[0])
+            wimg0 = _to_uint8_hwc(_h5_get(g, args.wrist_image_key)[0])
+            act0 = np.asarray(_h5_get(g, args.actions_key)[0]).reshape(-1).astype(np.float32)
         else:
             if "obs" not in f:
                 raise SystemExit(
                     f"Missing 'obs' group in file={h5_files[0]} keys={list(f.keys())}"
                 )
             obs_g = f["obs"]
-            img0 = _to_uint8_hwc(np.asarray(_h5_get(f, args.image_key))[0])
-            wimg0 = _to_uint8_hwc(np.asarray(_h5_get(f, args.wrist_image_key))[0])
-            act0 = np.asarray(_h5_get(f, args.actions_key))[0].reshape(-1).astype(np.float32)
+            img0 = _to_uint8_hwc(_h5_get(f, args.image_key)[0])
+            wimg0 = _to_uint8_hwc(_h5_get(f, args.wrist_image_key)[0])
+            act0 = np.asarray(_h5_get(f, args.actions_key)[0]).reshape(-1).astype(np.float32)
         state0 = _build_state(obs_g, 0, args.state_keys)
 
     # Create dataset.
@@ -348,8 +348,8 @@ def main() -> None:
                 actions = np.asarray(_h5_get(g, args.actions_key), dtype=np.float32)
                 T = int(actions.shape[0])
 
-                imgs = np.asarray(_h5_get(g, args.image_key))
-                wimgs = np.asarray(_h5_get(g, args.wrist_image_key))
+                imgs = _h5_get(g, args.image_key)
+                wimgs = _h5_get(g, args.wrist_image_key)
                 # obs groups are typically length T+1; we align with actions length T.
                 for t in range(T):
                     wrist_img = _to_uint8_hwc(wimgs[t])
