@@ -24,8 +24,19 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _to_numpy(x) -> np.ndarray:
+    try:
+        import torch
+
+        if isinstance(x, torch.Tensor):
+            return x.detach().cpu().numpy()
+    except Exception:
+        pass
+    return np.asarray(x)
+
+
 def _as_done(x) -> bool:
-    return bool(np.asarray(x).reshape(-1)[0])
+    return bool(_to_numpy(x).reshape(-1)[0])
 
 
 def _normalize_render_mode(render_mode: str | None) -> str | None:

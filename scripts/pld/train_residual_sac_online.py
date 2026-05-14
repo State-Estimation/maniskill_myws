@@ -13,12 +13,13 @@ import numpy as np
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "src"))
-
-from maniskill_myws.pld import train_common as common
 
 
 def main() -> None:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+
+    from maniskill_myws.pld import train_common as common
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-id", type=str, default="OpenSafeDoor-v2")
     parser.add_argument("--obs-mode", type=str, default="rgb")
