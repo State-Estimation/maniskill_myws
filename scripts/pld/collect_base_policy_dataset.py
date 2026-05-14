@@ -86,6 +86,12 @@ def main() -> None:
     parser.add_argument("--wrist-image-key", type=str, default="sensor_data/hand_camera/rgb")
     parser.add_argument("--state-keys", type=str, nargs="+", default=DEFAULT_STATE_KEYS)
     parser.add_argument("--resize", type=int, default=224)
+    parser.add_argument(
+        "--env-device",
+        type=str,
+        default=None,
+        help="Optional ManiSkill environment device, e.g. 'cuda:1'.",
+    )
 
     parser.add_argument(
         "--output-dir",
@@ -105,6 +111,7 @@ def main() -> None:
     from mani_skill.utils.wrappers.record import RecordEpisode
 
     import maniskill_myws
+    from maniskill_myws.pld.env_device import apply_env_device_kwargs
     from maniskill_myws.pld.policies import make_base_policy
     from maniskill_myws.task_prompts import get_task_prompt
 
@@ -120,6 +127,7 @@ def main() -> None:
     )
     if args.robot_uids.lower() not in {"none", "null", ""}:
         env_kwargs["robot_uids"] = args.robot_uids
+    apply_env_device_kwargs(env_kwargs, args.env_device)
     env = gym.make(args.env_id, **env_kwargs)
     env = RecordEpisode(
         env,

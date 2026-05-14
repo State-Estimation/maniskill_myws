@@ -1,0 +1,25 @@
+env:
+  CUDA_VISIBLE_DEVICES: "1"
+  PYTORCH_ALLOC_CONF: expandable_segments:True
+
+script: scripts/pld/train_residual_sac.py
+
+args:
+  env-id: OpenSafeDoor-v2
+  obs-mode: rgb
+  reward-mode: sparse
+  offline-h5-dir: dataset/Pi0_rollout_OpenSafeDoor-v2
+  output-dir: outputs/pld/OpenSafeDoor-v2_rolloutdata_visual
+  total-env-steps: 0
+  offline-pretrain-method: calql
+  offline-pretrain-updates: 20000
+  batch-size: 64
+  calql-n-actions: 10
+  wandb-enabled: true
+  wandb-project: maniskill-pld
+  wandb-name: opensafedoor_calql_pretrain_visual
+  use-visual-rl: true
+  rl-image-size: 128
+  device: cuda:0
+  checkpoint-name: calql_critic.pt
+  actor-checkpoint-name: calql_actor_unused.pt

@@ -811,6 +811,35 @@ class ResidualSAC:
             path,
         )
 
+    def load_critics(self, path: str | Path) -> None:
+        try:
+            payload: dict[str, Any] = torch.load(path, map_location=self.device, weights_only=False)
+        except TypeError:  # Older torch versions do not expose weights_only.
+            payload = torch.load(path, map_location=self.device)
+        self.q1.load_state_dict(payload["q1"])
+        self.q2.load_state_dict(payload["q2"])
+        self.q1_target.load_state_dict(payload.get("q1_target", payload["q1"]))
+        self.q2_target.load_state_dict(payload.get("q2_target", payload["q2"]))
+
+    def save_actor(self, path: str | Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "config": asdict(self.config),
+                "actor": self.actor.state_dict(),
+                "total_updates": self.total_updates,
+            },
+            path,
+        )
+
+    def load_actor(self, path: str | Path) -> None:
+        try:
+            payload: dict[str, Any] = torch.load(path, map_location=self.device, weights_only=False)
+        except TypeError:  # Older torch versions do not expose weights_only.
+            payload = torch.load(path, map_location=self.device)
+        self.actor.load_state_dict(payload["actor"])
+
     @classmethod
     def load(cls, path: str | Path, *, device: str | torch.device = "cpu") -> "ResidualSAC":
         try:

@@ -70,6 +70,7 @@ class OpenSafeDoor2Env(BaseEnv):
         door_joint_damping: float = 0.05,
         button_joint_friction: float = 0.8,
         button_joint_damping: float = 1.0,
+        min_success_steps: int = 100,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -82,6 +83,7 @@ class OpenSafeDoor2Env(BaseEnv):
         self.door_joint_damping = float(door_joint_damping)
         self.button_joint_friction = float(button_joint_friction)
         self.button_joint_damping = float(button_joint_damping)
+        self.min_success_steps = int(min_success_steps)
         self._safe_table_z = 1e-3
 
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
@@ -222,8 +224,9 @@ class OpenSafeDoor2Env(BaseEnv):
     def evaluate(self):
         button_qpos = self.button_joint.qpos
         button_pressed = button_qpos <= 0.035
+        past_startup_grace = self.elapsed_steps >= self.min_success_steps
 
-        self._door_released = self._door_released | button_pressed
+        self._door_released = self._door_released | (button_pressed & past_startup_grace)
 
         door_qpos = self.door_joint.qpos
 
@@ -231,7 +234,7 @@ class OpenSafeDoor2Env(BaseEnv):
         door_open_ratio = torch.clamp(door_open_amount / self.door_max_open, min=0.0, max=1.0)
         door_open = door_open_amount >= self.door_open_threshold
 
-        success = door_open & self._door_released
+        success = door_open & self._door_released & past_startup_grace
 
         return dict(
             success=success,
@@ -241,6 +244,7 @@ class OpenSafeDoor2Env(BaseEnv):
             door_open_ratio=door_open_ratio,
             door_open=door_open,
             door_released=self._door_released,
+            startup_grace_done=past_startup_grace,
         )
 
     def _get_obs_extra(self, info: dict):

@@ -102,11 +102,19 @@ def _prepare_image(image: np.ndarray, image_size: int | None) -> np.ndarray:
     return np.ascontiguousarray(arr, dtype=np.uint8)
 
 
-def _build_images(
-    traj_group: Any, t: int, image_keys: Sequence[str], image_size: int | None
+def _build_image_sequence(
+    traj_group: Any,
+    count: int,
+    image_keys: Sequence[str],
+    image_size: int | None,
 ) -> np.ndarray:
-    images = [_prepare_image(np.asarray(_h5_get(traj_group, key)[t]), image_size) for key in image_keys]
-    return np.stack(images, axis=0)
+    view_sequences: list[np.ndarray] = []
+    for key in image_keys:
+        raw_seq = _h5_get(traj_group, key)[:count]
+        view_sequences.append(
+            np.stack([_prepare_image(frame, image_size) for frame in raw_seq], axis=0)
+        )
+    return np.stack(view_sequences, axis=1)
 
 
 def _trajectory_success(traj_group: Any) -> bool:
@@ -233,10 +241,7 @@ def load_h5_replay(
                 obs_rows.append(states[:-1])
                 next_obs_rows.append(states[1:])
                 if use_images:
-                    image_seq = np.stack(
-                        [_build_images(g, t, image_keys or [], image_size) for t in range(t_count + 1)],
-                        axis=0,
-                    )
+                    image_seq = _build_image_sequence(g, t_count + 1, image_keys or [], image_size)
                     image_rows.append(image_seq[:-1])
                     next_image_rows.append(image_seq[1:])
                 action_rows.append(actions)
