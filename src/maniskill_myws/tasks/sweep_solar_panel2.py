@@ -179,6 +179,15 @@ class SolarPanelStaticEnv2(BaseEnv):
             # 静态物体：太阳能板
             # =========================
             panel_builder = self.scene.create_actor_builder()
+            panel_pose = sapien.Pose(
+                p=[
+                    self.panel_spawn_center_x,
+                    self.panel_spawn_center_y,
+                    self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
+                ],
+                q=list(self.PANEL_BASE_Q),
+            )
+            panel_builder.initial_pose = panel_pose
             panel_builder.add_visual_from_file(
                 str(d / "solar_panel/mesh/solar_panel.obj")
             )
@@ -186,16 +195,7 @@ class SolarPanelStaticEnv2(BaseEnv):
                 str(d / "solar_panel/mesh/solar_panel.obj")
             )
             self.panel = panel_builder.build_static(name="solar_panel")
-            self.panel.set_pose(
-                sapien.Pose(
-                    p=[
-                        self.panel_spawn_center_x,
-                        self.panel_spawn_center_y,
-                        self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
-                    ],
-                    q=list(self.PANEL_BASE_Q),
-                )
-            )
+            self.panel.set_pose(panel_pose)
 
             # =========================
             # 刷子：通过 URDF 导入
@@ -236,6 +236,14 @@ class SolarPanelStaticEnv2(BaseEnv):
             cell_half_z = region_len_z / self.clean_grid_y * 0.47
             for i in range(self.clean_grid_x * self.clean_grid_y):
                 marker_builder = self.scene.create_actor_builder()
+                marker_builder.initial_pose = sapien.Pose(
+                    p=[
+                        self.panel_spawn_center_x,
+                        self.panel_spawn_center_y,
+                        -self.CLEAN_MARKER_HIDE_DIST,
+                    ],
+                    q=list(self.PANEL_BASE_Q),
+                )
                 marker_builder.add_box_visual(
                     half_size=[
                         cell_half_x,
@@ -533,7 +541,10 @@ class SolarPanelStaticEnv2(BaseEnv):
         if info.get("cleaning_contact") is not None:
             obs["cleaning_contact"] = info["cleaning_contact"].float()
         if info.get("brush_face_panel") is not None:
-            obs["brush_face_panel"] = info["brush_face_panel"]
+            brush_face_panel = info["brush_face_panel"]
+            obs["brush_face_panel"] = brush_face_panel.reshape(
+                brush_face_panel.shape[0], -1
+            )
         return obs
 
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):

@@ -159,6 +159,15 @@ class SolarPanelStaticEnv(BaseEnv):
             # 静态物体：太阳能板
             # =========================
             panel_builder = self.scene.create_actor_builder()
+            panel_pose = sapien.Pose(
+                p=[
+                    self.panel_spawn_center_x,
+                    self.panel_spawn_center_y,
+                    self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
+                ],
+                q=list(self.PANEL_BASE_Q),
+            )
+            panel_builder.initial_pose = panel_pose
             panel_builder.add_visual_from_file(
                 str(d / "mesh/solar_panel.obj")
             )
@@ -167,16 +176,7 @@ class SolarPanelStaticEnv(BaseEnv):
             )
             self.panel = panel_builder.build_static(name="solar_panel")
             # 设置位置（很重要！不然默认在原点）
-            self.panel.set_pose(
-                sapien.Pose(
-                    p=[
-                        self.panel_spawn_center_x,
-                        self.panel_spawn_center_y,
-                        self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
-                    ],
-                    q=list(self.PANEL_BASE_Q),
-                )
-            )
+            self.panel.set_pose(panel_pose)
 
             self.clean_markers = []
             marker_mat = sapien.render.RenderMaterial(
@@ -190,6 +190,14 @@ class SolarPanelStaticEnv(BaseEnv):
             ) / self.clean_grid_y * 0.47
             for i in range(self.clean_grid_x * self.clean_grid_y):
                 marker_builder = self.scene.create_actor_builder()
+                marker_builder.initial_pose = sapien.Pose(
+                    p=[
+                        self.panel_spawn_center_x,
+                        self.panel_spawn_center_y,
+                        self.CLEAN_MARKER_HIDE_Z,
+                    ],
+                    q=list(self.PANEL_BASE_Q),
+                )
                 marker_builder.add_box_visual(
                     half_size=[
                         cell_half_x,
@@ -207,6 +215,15 @@ class SolarPanelStaticEnv(BaseEnv):
             # =========================
             brush_builder = self.scene.create_actor_builder()
             brush_density = self._compute_brush_density()
+            brush_pose = sapien.Pose(
+                p=[
+                    self.brush_spawn_center_x,
+                    self.brush_spawn_center_y,
+                    self.brush_z,
+                ],
+                q=list(self.BRUSH_LIE_Q),
+            )
+            brush_builder.initial_pose = brush_pose
             base_dir = importlib_resources.files("maniskill_myws").joinpath("assets/brush/meshes")
             with importlib_resources.as_file(base_dir) as brush_mesh_dir:
                 brush_builder.add_visual_from_file(str(brush_mesh_dir / "base_link.STL"))
@@ -225,16 +242,7 @@ class SolarPanelStaticEnv(BaseEnv):
                 density=brush_density,
             )
             self.brush = brush_builder.build(name="brush")
-            self.brush.set_pose(
-                sapien.Pose(
-                    p=[
-                        self.brush_spawn_center_x,
-                        self.brush_spawn_center_y,
-                        self.brush_z,
-                    ],
-                    q=list(self.BRUSH_LIE_Q),
-                )
-            )
+            self.brush.set_pose(brush_pose)
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         # 保留桌面与机器人初始化
