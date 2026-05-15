@@ -13,6 +13,25 @@ import imageio.v2 as imageio
 import numpy as np
 
 
+def _traj_sort_key(traj_id: str) -> tuple[int, str]:
+    prefix, _, suffix = traj_id.rpartition("_")
+    if prefix == "traj" and suffix.isdigit():
+        return (int(suffix), traj_id)
+    return (10**12, traj_id)
+
+
+def _parse_traj_ids(value: str | None) -> set[str] | None:
+    if value is None or value.strip() == "":
+        return None
+    traj_ids = set()
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        traj_ids.add(item if item.startswith("traj_") else f"traj_{item}")
+    return traj_ids
+
+
 def _normalize_path(path: str) -> str:
     return path.lstrip("/")
 
@@ -46,6 +65,8 @@ def main() -> None:
     p.add_argument("--camera-key", type=str, default="obs/sensor_data/base_camera/rgb")
     p.add_argument("--fps", type=int, default=20)
     p.add_argument("--suffix", type=str, default="base_view")
+    p.add_argument("--traj-ids", type=str, default=None, help="Comma-separated ids, e.g. 0,1,traj_2.")
+    p.add_argument("--limit", type=int, default=None, help="Export only the first N selected trajectories.")
     args = p.parse_args()
 
     h5_path = Path(args.h5_path).expanduser().resolve()
@@ -53,9 +74,17 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with h5py.File(h5_path, "r") as f:
-        traj_ids = sorted(k for k in f.keys() if k.startswith("traj_"))
+        traj_ids = sorted((k for k in f.keys() if k.startswith("traj_")), key=_traj_sort_key)
         if not traj_ids:
             raise SystemExit(f"No traj_* groups found in {h5_path}")
+        selected = _parse_traj_ids(args.traj_ids)
+        if selected is not None:
+            missing = sorted(selected - set(traj_ids), key=_traj_sort_key)
+            if missing:
+                raise SystemExit(f"Missing trajectories in {h5_path}: {missing}")
+            traj_ids = [traj_id for traj_id in traj_ids if traj_id in selected]
+        if args.limit is not None:
+            traj_ids = traj_ids[: args.limit]
 
         print(f"H5: {h5_path}")
         print(f"Trajectories: {len(traj_ids)}")
