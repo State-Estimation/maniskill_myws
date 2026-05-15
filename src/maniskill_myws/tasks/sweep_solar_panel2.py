@@ -185,17 +185,17 @@ class SolarPanelStaticEnv2(BaseEnv):
             panel_builder.add_nonconvex_collision_from_file(
                 str(d / "solar_panel/mesh/solar_panel.obj")
             )
-            self.panel = panel_builder.build_static(name="solar_panel")
-            self.panel.set_pose(
-                sapien.Pose(
-                    p=[
-                        self.panel_spawn_center_x,
-                        self.panel_spawn_center_y,
-                        self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
-                    ],
-                    q=list(self.PANEL_BASE_Q),
-                )
+            panel_pose = sapien.Pose(
+                p=[
+                    self.panel_spawn_center_x,
+                    self.panel_spawn_center_y,
+                    self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
+                ],
+                q=list(self.PANEL_BASE_Q),
             )
+            panel_builder.initial_pose = panel_pose
+            self.panel = panel_builder.build_static(name="solar_panel")
+            self.panel.set_pose(panel_pose)
 
             # =========================
             # 刷子：通过 URDF 导入
@@ -243,6 +243,14 @@ class SolarPanelStaticEnv2(BaseEnv):
                         cell_half_z,
                     ],
                     material=marker_mat,
+                )
+                marker_builder.initial_pose = sapien.Pose(
+                    p=[
+                        self.panel_spawn_center_x,
+                        self.panel_spawn_center_y,
+                        -self.CLEAN_MARKER_HIDE_DIST,
+                    ],
+                    q=list(self.PANEL_BASE_Q),
                 )
                 self.clean_markers.append(
                     marker_builder.build_kinematic(name=f"clean_marker_{i}")
@@ -533,7 +541,10 @@ class SolarPanelStaticEnv2(BaseEnv):
         if info.get("cleaning_contact") is not None:
             obs["cleaning_contact"] = info["cleaning_contact"].float()
         if info.get("brush_face_panel") is not None:
-            obs["brush_face_panel"] = info["brush_face_panel"]
+            brush_face_panel = info["brush_face_panel"]
+            obs["brush_face_panel"] = brush_face_panel.reshape(
+                brush_face_panel.shape[0], -1
+            )
         return obs
 
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):

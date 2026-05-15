@@ -165,18 +165,18 @@ class SolarPanelStaticEnv(BaseEnv):
             panel_builder.add_nonconvex_collision_from_file(
                 str(d / "mesh/solar_panel.obj")
             )
+            panel_pose = sapien.Pose(
+                p=[
+                    self.panel_spawn_center_x,
+                    self.panel_spawn_center_y,
+                    self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
+                ],
+                q=list(self.PANEL_BASE_Q),
+            )
+            panel_builder.initial_pose = panel_pose
             self.panel = panel_builder.build_static(name="solar_panel")
             # 设置位置（很重要！不然默认在原点）
-            self.panel.set_pose(
-                sapien.Pose(
-                    p=[
-                        self.panel_spawn_center_x,
-                        self.panel_spawn_center_y,
-                        self.PANEL_TABLE_CLEARANCE - self.PANEL_LOCAL_MIN_Y,
-                    ],
-                    q=list(self.PANEL_BASE_Q),
-                )
-            )
+            self.panel.set_pose(panel_pose)
 
             self.clean_markers = []
             marker_mat = sapien.render.RenderMaterial(
@@ -197,6 +197,14 @@ class SolarPanelStaticEnv(BaseEnv):
                         cell_half_z,
                     ],
                     material=marker_mat,
+                )
+                marker_builder.initial_pose = sapien.Pose(
+                    p=[
+                        self.panel_spawn_center_x,
+                        self.panel_spawn_center_y,
+                        self.CLEAN_MARKER_HIDE_Z,
+                    ],
+                    q=list(self.PANEL_BASE_Q),
                 )
                 self.clean_markers.append(
                     marker_builder.build_static(name=f"clean_marker_{i}")
@@ -224,17 +232,17 @@ class SolarPanelStaticEnv(BaseEnv):
                 half_size=list(self.BRUSH_HEAD_BOX_HALF_SIZE),
                 density=brush_density,
             )
-            self.brush = brush_builder.build(name="brush")
-            self.brush.set_pose(
-                sapien.Pose(
-                    p=[
-                        self.brush_spawn_center_x,
-                        self.brush_spawn_center_y,
-                        self.brush_z,
-                    ],
-                    q=list(self.BRUSH_LIE_Q),
-                )
+            brush_pose = sapien.Pose(
+                p=[
+                    self.brush_spawn_center_x,
+                    self.brush_spawn_center_y,
+                    self.brush_z,
+                ],
+                q=list(self.BRUSH_LIE_Q),
             )
+            brush_builder.initial_pose = brush_pose
+            self.brush = brush_builder.build(name="brush")
+            self.brush.set_pose(brush_pose)
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         # 保留桌面与机器人初始化
