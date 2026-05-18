@@ -11,6 +11,7 @@ We store the following features:
   - state: 1D float32 (any length; openpi can pad)
   - actions: 7D float32 (pd_ee_delta_pose)
   - task: str (used as prompt when `prompt_from_task=True`)
+  - optional success truncation: keep frames only through the first success step
 
 Example:
   conda activate mani_skill
@@ -83,6 +84,21 @@ def _build_state(obs_root: Any, t: int, state_keys: list[str]) -> np.ndarray:
     if not parts:
         raise ValueError("state_keys is empty")
     return np.concatenate(parts, axis=0)
+
+
+def _truncate_length_on_success(root: Any, *, success_key: str, T: int) -> int:
+    try:
+        success = np.asarray(_h5_get(root, success_key)).reshape(-1)
+    except Exception as e:
+        raise SystemExit(
+            f"Missing success key '{success_key}', required by --truncate-on-success."
+        ) from e
+
+    success = success[:T].astype(bool, copy=False)
+    hit = np.flatnonzero(success)
+    if hit.size == 0:
+        return T
+    return int(hit[0]) + 1
 
 
 def _load_env_entrypoint(env_id: str):
@@ -234,6 +250,17 @@ def main() -> None:
         help="One or more H5 paths inside traj group to concat into a 1D state vector.",
     )
     parser.add_argument("--actions-key", type=str, default="actions", help="H5 dataset path inside traj group.")
+    parser.add_argument(
+        "--truncate-on-success",
+        action="store_true",
+        help="If set, keep only frames through the first True value in --success-key for each trajectory.",
+    )
+    parser.add_argument(
+        "--success-key",
+        type=str,
+        default="success",
+        help="H5 dataset path inside traj group used by --truncate-on-success.",
+    )
     parser.add_argument("--task", type=str, default="do something")
     parser.add_argument(
         "--task-from",
@@ -347,6 +374,8 @@ def main() -> None:
                 obs_g = g["obs"]
                 actions = np.asarray(_h5_get(g, args.actions_key), dtype=np.float32)
                 T = int(actions.shape[0])
+                if args.truncate_on_success:
+                    T = _truncate_length_on_success(g, success_key=args.success_key, T=T)
 
                 imgs = _h5_get(g, args.image_key)
                 wimgs = _h5_get(g, args.wrist_image_key)
