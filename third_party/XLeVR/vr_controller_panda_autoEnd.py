@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import numpy as np
+import torch
 import gymnasium as gym
 import asyncio
 from dataclasses import dataclass
@@ -315,7 +316,6 @@ def compute_target_ee_pose(curr_vr_pos, curr_vr_quat, vr_ref_pos, vr_ref_quat,
     # --- orientation ---
     q_diff = tf_quat.qmult(curr_vr_quat, tf_quat.qinverse(vr_ref_quat))
     axis, angle = tf_quat.quat2axangle(q_diff)
-    #angle = -angle
     axis_sim = coord_transform @ axis
 
     if angle > np.pi:
@@ -360,15 +360,16 @@ task_list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2",
 
 @dataclass
 class Args:
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "OpenSafeDoor-v2"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TurnGlobeValve-v1"
     obs_mode: str = "rgb"
-    robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam"
+    robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam_custom_rot"
     record_dir: str = "demos2"
     viewer_shader: str = "rt-fast"
     number: int = 0
     pos_scale: float = 1.0
     rot_scale: float = 1.0
     ik_error_threshold: float = 0.01  # IK error norm above which we pause
+    auto_end_success_frames: int = 10  # consecutive success frames to auto-end trajectory (0 = disable)
 
 
 def create_environment(args: Args):
@@ -407,11 +408,11 @@ def start_vr_thread():
 
 
 def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
-                    ik_error_threshold, base_seed):
+                    ik_error_threshold, auto_end_success_frames, base_seed):
     # ---- coordinate transform (VR → robot) ----
     coord_transform = np.array([
-        [0, 0, -1],
-        [-1, 0, 0],
+        [0, 0, 1],
+        [1, 0, 0],
         [0, 1, 0],
     ])
 
@@ -479,17 +480,21 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
     print("  [VR] Squeeze : Enable Tracking")
     print("  [VR] Trigger : Gripper")
     print("  [KB] S: Save | Q: Quit")
+    if auto_end_success_frames > 0:
+        print(f"  [Auto] End trajectory after {auto_end_success_frames} consecutive success frames")
     print("=" * 50 + "\n")
 
     num_trajs = 0
     seed = base_seed
     action_cmd = None
+    success_counter = 0
     last_idle_render = 0.0
     last_target_ee = None  # pin.SE3, for updating the viz frame
 
     while True:
         print(f"Collecting trajectory {num_trajs+1}, seed={seed}")
 
+        success_counter = 0
         action_dim = env.unwrapped.single_action_space.shape[0]
 
         while True:
@@ -649,6 +654,25 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
                     env.base_env.render_human()
                     last_idle_render = now
 
+            # ---- auto-end on consecutive success frames ----
+            if auto_end_success_frames > 0:
+                eval_result = env.base_env.evaluate()
+                if eval_result.get("success", False):
+                    if isinstance(eval_result["success"], torch.Tensor):
+                        is_success = bool(eval_result["success"].item())
+                    else:
+                        is_success = bool(eval_result["success"])
+                    if is_success:
+                        success_counter += 1
+                    else:
+                        success_counter = 0
+                else:
+                    success_counter = 0
+                if success_counter >= auto_end_success_frames:
+                    print(f"[Auto-End] {auto_end_success_frames} consecutive success frames, saving trajectory")
+                    action_cmd = "save"
+                    break
+
             # ---- keyboard commands ----
             if key_state.consume_quit():
                 action_cmd = "quit"
@@ -693,7 +717,7 @@ def main(args: Args):
 
     run_teleop_loop(env, latest_goal, key_state,
                     args.pos_scale, args.rot_scale,
-                    args.ik_error_threshold, base_seed)
+                    args.ik_error_threshold, args.auto_end_success_frames, base_seed)
 
 
 if __name__ == "__main__":

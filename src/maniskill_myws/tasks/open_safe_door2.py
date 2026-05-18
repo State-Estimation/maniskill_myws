@@ -10,7 +10,7 @@ import torch
 from mani_skill.agents.robots import Panda
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.utils import randomization
-from mani_skill.sensors.camera import CameraConfig
+from mani_skill.sensors.camera import CameraConfig, Union
 from mani_skill.utils import sapien_utils
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
@@ -18,6 +18,7 @@ from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import SimConfig, SceneConfig
 from maniskill_myws.task_prompts import TASK_PROMPTS
+from maniskill_myws.agents.robots.panda_wristcam_customRot import PandaWristCamCustomRot
 
 
 @register_env("OpenSafeDoor-v2", max_episode_steps=500)
@@ -34,9 +35,22 @@ class OpenSafeDoor2Env(BaseEnv):
     """
 
     SUPPORTED_REWARD_MODES = ["sparse", "dense", "none"]
-    SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
-    agent: Panda
+    SUPPORTED_ROBOTS = ["panda", "panda_wristcam", "panda_wristcam_custom_rot"]
+    agent: Union[Panda, PandaWristCamCustomRot]
     DEFAULT_TASK_PROMPT = TASK_PROMPTS["OpenSafeDoor-v2"]
+
+    ROBOT_HOME_QPOS_PANDA = np.array(
+        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
+        dtype=np.float32,
+    )
+    ROBOT_HOME_QPOS_PANDA_WRISTCAM = np.array(
+        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
+        dtype=np.float32,
+    )
+    ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT = np.array(
+        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
+        dtype=np.float32,
+    )
 
     # Joint semantics from mobility_v2.json:
     # - joint_door: door hinge (revolute, limited)
@@ -185,9 +199,37 @@ class OpenSafeDoor2Env(BaseEnv):
 
         self._door_released = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
+    def _reset_robot_retracted_qpos(self, env_idx: torch.Tensor):
+        b = len(env_idx)
+        if self.robot_uids == "panda":
+            base_qpos = self.ROBOT_HOME_QPOS_PANDA
+        elif self.robot_uids == "panda_wristcam":
+            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM
+        elif self.robot_uids == "panda_wristcam_custom_rot":
+            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT
+        else:
+            raise ValueError(f"Unsupported robot_uids: {self.robot_uids}")
+        qpos = np.repeat(base_qpos[None, :], b, axis=0)
+
+        if self._enhanced_determinism:
+            qpos = (
+                self._batched_episode_rng[env_idx].normal(
+                    0, self.robot_init_qpos_noise, len(base_qpos)
+                )
+                + qpos
+            )
+        else:
+            qpos = self._episode_rng.normal(
+                0, self.robot_init_qpos_noise, qpos.shape
+            ) + qpos
+
+        qpos[:, -2:] = 0.04
+        self.agent.reset(qpos)
+
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         with torch.device(self.device):
             self.scene_builder.initialize(env_idx)
+            self._reset_robot_retracted_qpos(env_idx)
             b = len(env_idx)
 
             p = torch.zeros((b, 3), device=self.device)

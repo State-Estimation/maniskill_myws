@@ -223,9 +223,9 @@ list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2", "SolarPanelStatic-
 
 @dataclass
 class Args:
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "SolarPanelStatic-v2"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TakeSafetyHook-v2"
     obs_mode: str = "rgb"
-    robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam"
+    robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam_custom_rot"
     record_dir: str = "demos2"
     viewer_shader: str = "rt-fast"
     number: int = 0
@@ -271,8 +271,8 @@ def start_vr_thread():
 
 def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
     coord_transform = np.array([
-        [0, 0, 1],
-        [1, 0, 0],
+        [0, 0, -1],
+        [-1, 0, 0],
         [0, 1, 0],
     ])
     prev_vr_pos = None

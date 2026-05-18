@@ -3,8 +3,7 @@ from typing import Any
 import sapien
 
 from mani_skill.agents.robots import Panda
-
-from mani_skill.sensors.camera import CameraConfig
+from mani_skill.sensors.camera import CameraConfig, Union
 from mani_skill.utils import sapien_utils
 from mani_skill.envs.utils import randomization
 
@@ -13,6 +12,7 @@ from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import SimConfig, SceneConfig
 from mani_skill.utils.registration import register_env
+from maniskill_myws.agents.robots.panda_wristcam_customRot import PandaWristCamCustomRot
 import importlib.resources as importlib_resources
 import torch
 import numpy as np
@@ -22,8 +22,8 @@ import numpy as np
 class SolarPanelStaticEnv(BaseEnv):
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
-    SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
-    agent: Panda
+    SUPPORTED_ROBOTS = ["panda", "panda_wristcam", "panda_wristcam_custom_rot"]
+    agent: Union[Panda, PandaWristCamCustomRot]
 
     # The OBJ is placed with a 90 deg X rotation, so local y becomes world z.
     # These bounds are from assets/solar_panel/mesh/solar_panel.obj.
@@ -64,6 +64,10 @@ class SolarPanelStaticEnv(BaseEnv):
         dtype=np.float32,
     )
     ROBOT_HOME_QPOS_PANDA_WRISTCAM = np.array(
+        [0.0, 0.55, 0.0, -2.05, 0.0, 2.45, -np.pi / 4, 0.04, 0.04],
+        dtype=np.float32,
+    )
+    ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT = np.array(
         [0.0, 0.55, 0.0, -2.05, 0.0, 2.45, -np.pi / 4, 0.04, 0.04],
         dtype=np.float32,
     )
@@ -349,8 +353,12 @@ class SolarPanelStaticEnv(BaseEnv):
         b = len(env_idx)
         if self.robot_uids == "panda":
             base_qpos = self.ROBOT_HOME_QPOS_PANDA
-        else:
+        elif self.robot_uids == "panda_wristcam":
             base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM
+        elif self.robot_uids == "panda_wristcam_custom_rot":
+            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT
+        else:
+            raise ValueError(f"Unsupported robot_uids: {self.robot_uids}")
         qpos = np.repeat(base_qpos[None, :], b, axis=0)
 
         if self._enhanced_determinism:

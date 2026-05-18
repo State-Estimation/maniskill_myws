@@ -18,14 +18,15 @@ import torch
 import numpy as np
 
 from maniskill_myws.task_prompts import TASK_PROMPTS
+from maniskill_myws.agents.robots.panda_wristcam_customRot import PandaWristCamCustomRot
 
 
 @register_env("SolarPanelStatic-v2", max_episode_steps=600)
 class SolarPanelStaticEnv2(BaseEnv):
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
-    SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
-    agent: Union[Panda, PandaWristCam]
+    SUPPORTED_ROBOTS = ["panda", "panda_wristcam", "panda_wristcam_custom_rot"]
+    agent: Union[Panda, PandaWristCam, PandaWristCamCustomRot]
 
     DEFAULT_TASK_PROMPT = TASK_PROMPTS["SolarPanelStatic-v2"]
     # The OBJ is placed with a 90 deg X rotation, so local y becomes world z.
@@ -76,6 +77,10 @@ class SolarPanelStaticEnv2(BaseEnv):
         dtype=np.float32,
     )
     ROBOT_HOME_QPOS_PANDA_WRISTCAM = np.array(
+        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
+        dtype=np.float32,
+    )
+    ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT = np.array(
         [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
         dtype=np.float32,
     )
@@ -354,8 +359,12 @@ class SolarPanelStaticEnv2(BaseEnv):
         b = len(env_idx)
         if self.robot_uids == "panda":
             base_qpos = self.ROBOT_HOME_QPOS_PANDA
-        else:
+        elif self.robot_uids == "panda_wristcam":
             base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM
+        elif self.robot_uids == "panda_wristcam_custom_rot":
+            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT
+        else:
+            raise ValueError(f"Unsupported robot_uids: {self.robot_uids}")
         qpos = np.repeat(base_qpos[None, :], b, axis=0)
 
         if self._enhanced_determinism:
