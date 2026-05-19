@@ -85,7 +85,7 @@ def main() -> None:
     p.add_argument("--env-id", type=str, default="TurnGlobeValve-v1")
     p.add_argument("--obs-mode", type=str, default="rgb")
     p.add_argument("--reward-mode", type=str, default="none")
-    p.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    p.add_argument("--control-mode", type=str, default="pd_joint_pos")
     p.add_argument(
         "--render-mode",
         type=str,
@@ -245,7 +245,10 @@ def main() -> None:
         state_keys=state_keys,
         prompt=prompt,
     )
-    policy = RemoteWebsocketChunkPolicy(server=args.server, obs_adapter=adapter, act_dim=7, resize=224)
+    action_dim = int(np.prod(env.action_space.shape))
+    policy = RemoteWebsocketChunkPolicy(
+        server=args.server, obs_adapter=adapter, act_dim=action_dim, resize=224
+    )
     policy.reset()
 
     path_visualizer = None
@@ -337,7 +340,11 @@ def main() -> None:
     if args.save_trajectory and out_dir is not None:
         np.savez_compressed(
             out_dir / "trajectory.npz",
-            actions=np.stack(traj_actions) if traj_actions else np.zeros((0, 7), dtype=np.float32),
+            actions=(
+                np.stack(traj_actions)
+                if traj_actions
+                else np.zeros((0, action_dim), dtype=np.float32)
+            ),
             tcp=np.stack(traj_tcp) if traj_tcp else np.zeros((0, 0), dtype=np.float32),
             prompt=prompt,
             env_id=args.env_id,

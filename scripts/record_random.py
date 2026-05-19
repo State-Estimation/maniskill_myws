@@ -30,7 +30,7 @@ def main():
     parser.add_argument("--num-episodes", type=int, default=1)
     parser.add_argument("--obs-mode", type=str, default="state_dict")
     parser.add_argument("--reward-mode", type=str, default="none")
-    parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    parser.add_argument("--control-mode", type=str, default="pd_joint_pos")
     parser.add_argument("--save-video", action="store_true")
     args = parser.parse_args()
 

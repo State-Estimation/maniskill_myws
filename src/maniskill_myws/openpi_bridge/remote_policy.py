@@ -21,7 +21,7 @@ class RemoteWebsocketChunkPolicy:
 
     server: str  # e.g. "ws://localhost:8000"
     obs_adapter: ObsAdapter
-    act_dim: int = 7
+    act_dim: int = 8
     resize: int = 224
 
     def __post_init__(self) -> None:
@@ -66,6 +66,12 @@ class RemoteWebsocketChunkPolicy:
             chunk = np.asarray(out["actions"])
             if chunk.ndim != 2:
                 raise ValueError(f"Expected action chunk [H, D], got shape={chunk.shape}")
+            if chunk.shape[1] < self.act_dim:
+                raise ValueError(
+                    f"Remote policy returned action_dim={chunk.shape[1]}, "
+                    f"but the current control mode expects {self.act_dim}. "
+                    "Use a checkpoint trained for this control mode or override --control-mode."
+                )
             chunk = chunk[:, : self.act_dim].astype(np.float32, copy=False)
             for a in chunk:
                 self._queue.append(a)

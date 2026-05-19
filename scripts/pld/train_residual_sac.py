@@ -24,7 +24,7 @@ import time
 import numpy as np
 
 
-DEFAULT_OFFLINE_DIR = "dataset/Replayed_traj_data_openSafeDoor2"
+DEFAULT_OFFLINE_DIR = "dataset/Pi0_rollout_OpenSafeDoor-v2"
 DEFAULT_STATE_KEYS = ["agent/qpos", "agent/qvel", "extra/tcp_pose"]
 
 
@@ -168,7 +168,7 @@ def main() -> None:
     parser.add_argument("--env-id", type=str, default="OpenSafeDoor-v2")
     parser.add_argument("--obs-mode", type=str, default="state_dict")
     parser.add_argument("--reward-mode", type=str, default="sparse")
-    parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    parser.add_argument("--control-mode", type=str, default="pd_joint_pos")
     parser.add_argument(
         "--render-mode",
         type=str,

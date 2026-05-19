@@ -61,7 +61,7 @@ def main() -> None:
     parser.add_argument("--env-id", type=str, default="OpenSafeDoor-v2")
     parser.add_argument("--obs-mode", type=str, default="rgb")
     parser.add_argument("--reward-mode", type=str, default="none")
-    parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    parser.add_argument("--control-mode", type=str, default="pd_joint_pos")
     parser.add_argument(
         "--robot-uids",
         type=str,
