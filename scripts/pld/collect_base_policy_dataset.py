@@ -6,8 +6,9 @@ This is the PLD Algorithm 1 initialization dataset:
   D_offline = successful trials collected by pi_b.
 
 The output is standard ManiSkill `.h5 + .json`, with rgb observations, Panda
-wrist camera, pd_ee_delta_pose actions, and the same keys expected by
-docs/maniskill_dataset_standard.md and scripts/convert_traj_to_lerobot.py.
+wrist camera, actions in the configured control mode (standard: pd_joint_pos),
+and the same keys expected by docs/maniskill_dataset_standard.md and
+scripts/convert_traj_to_lerobot.py.
 """
 
 from __future__ import annotations

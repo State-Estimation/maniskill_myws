@@ -9,7 +9,7 @@ We store the following features:
   - image: HWC uint8
   - wrist_image: HWC uint8 (required)
   - state: 1D float32 (any length; openpi can pad)
-  - actions: 7D float32 (pd_ee_delta_pose)
+  - actions: float32, normally 8D for Panda pd_joint_pos
   - task: str (used as prompt when `prompt_from_task=True`)
   - optional success truncation: keep frames only through the first success step
 

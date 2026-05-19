@@ -7,8 +7,8 @@ The implementation is intentionally staged so we can reuse the existing assets:
 
 - ManiSkill custom tasks in `src/maniskill_myws/tasks`
 - pi0/openpi remote policy bridge in `src/maniskill_myws/openpi_bridge`
-- existing successful OpenSafeDoor-v2 replay data in
-  `dataset/Replayed_traj_data_openSafeDoor2`
+- legacy OpenSafeDoor-v2 replay data in
+  `dataset/Replayed_traj_data_openSafeDoor2` for reference
 - existing H5-to-LeRobot conversion script in `scripts/convert_traj_to_lerobot.py`
 
 ## Paper-To-Code Mapping
@@ -60,9 +60,9 @@ the authors' full internal stack.
   action is used as the offline base-action proxy. Online PLD training should
   still use the real base policy via `--base-policy remote_openpi`.
 
-## Verified Existing Data
+## Verified Legacy Existing Data
 
-In `robotwin-cu130`, the loader sees:
+In `robotwin-cu130`, the older bundled replay path currently loads as:
 
 ```text
 files: 6
@@ -73,7 +73,10 @@ reward_min: 0.0
 reward_max: 1.0
 ```
 
-The default offline path is:
+This is a legacy 7D action dataset. For the current `pd_joint_pos` standard,
+new PLD offline buffers should be recollected with `action_dim: 8`.
+
+The legacy offline path is:
 
 ```text
 dataset/Replayed_traj_data_openSafeDoor2
@@ -86,6 +89,7 @@ collect that dataset from a running OpenPI server:
 ```bash
 conda run -n robotwin-cu130 python scripts/pld/collect_base_policy_dataset.py \
   --env-id OpenSafeDoor-v2 \
+  --control-mode pd_joint_pos \
   --server ws://127.0.0.1:8000 \
   --num-successes 50 \
   --max-attempts 200 \
@@ -114,9 +118,10 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
-  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
   --output-dir outputs/pld/OpenSafeDoor-v2 \
   --total-env-steps 250000
 ```
@@ -129,9 +134,10 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
-  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
   --output-dir outputs/pld/OpenSafeDoor-v2_calql \
   --total-env-steps 250000 \
   --offline-pretrain-method calql \
@@ -151,9 +157,10 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
-  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
   --output-dir outputs/pld/OpenSafeDoor-v2_otf \
   --total-env-steps 250000 \
   --offline-pretrain-method calql \
@@ -181,9 +188,10 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
-  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
   --output-dir outputs/pld/OpenSafeDoor-v2_visual \
   --total-env-steps 250000 \
   --offline-pretrain-method calql \
@@ -213,9 +221,10 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
-  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
   --output-dir outputs/pld/OpenSafeDoor-v2 \
   --total-env-steps 250000 \
   --warmup-buffer-path outputs/pld/OpenSafeDoor-v2/warmup_buffer.npz
@@ -232,9 +241,10 @@ conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
-  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
   --output-dir outputs/pld/OpenSafeDoor-v2 \
   --total-env-steps 250000 \
   --render-mode human \
@@ -261,6 +271,7 @@ conda run -n robotwin-cu130 python scripts/pld/eval_residual_checkpoints.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
   --num-episodes 20 \
@@ -279,6 +290,7 @@ conda run -n robotwin-cu130 python scripts/pld/eval_residual_checkpoints.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
   --num-episodes 20 \
@@ -294,33 +306,30 @@ candidate count to checkpoint eval, for example `--otf-rollout-actions 4`.
 Visual checkpoints automatically require the same camera keys; override
 `--rl-image-keys` only if the checkpoint was trained with non-default cameras.
 
-To also visualize the gripper TCP path in the viewer, add
-`--visualize-tcp-path`. Blue markers show the current base-policy future action
-chunk projected from the current TCP pose by accumulating each action's
-`dx,dy,dz`. Orange markers show the true TCP positions reached after executing
-`a_base + a_delta`:
+For realtime viewer debugging under the `pd_joint_pos` standard, render the
+environment directly and leave the older EE-delta TCP path projection disabled:
 
 ```bash
 conda run -n robotwin-cu130 python scripts/pld/train_residual_sac.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
-  --offline-h5-dir dataset/Replayed_traj_data_openSafeDoor2 \
+  --offline-h5-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
   --output-dir outputs/pld/OpenSafeDoor-v2 \
   --total-env-steps 250000 \
   --render-mode human \
   --render-every 1 \
-  --visualize-tcp-path \
-  --base-chunk-max-actions 16 \
-  --base-chunk-position-scale 0.1 \
   --path-every 2
 ```
 
-`--base-chunk-position-scale` should match the controller's position scale. For
-Panda `pd_ee_delta_pose`, normalized actions map to roughly `[-0.1, 0.1]`
-meters, so `0.1` is the default.
+The current standard control mode is Panda `pd_joint_pos`, where actions are
+joint position targets rather than TCP deltas. The older TCP path visualization
+options (`--visualize-tcp-path`, `--base-chunk-position-scale`) assume EE delta
+actions and should stay disabled until the visualizer is changed to project
+joint target chunks through FK.
 
 Use a larger `--render-every`, such as `5` or `10`, if rendering makes training
 too slow.
@@ -348,6 +357,7 @@ conda run -n robotwin-cu130 python scripts/pld/collect_hybrid_pld.py \
   --env-id OpenSafeDoor-v2 \
   --obs-mode rgb \
   --reward-mode sparse \
+  --control-mode pd_joint_pos \
   --base-policy remote_openpi \
   --server ws://127.0.0.1:8000 \
   --num-episodes 100 \
