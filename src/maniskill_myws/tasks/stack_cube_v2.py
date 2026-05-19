@@ -22,20 +22,8 @@ class StackCubeV2Env(StackCubeEnv):
       - Default robot is panda_wristcam (provides wrist camera).
     """
 
-    SUPPORTED_ROBOTS = ["panda_wristcam", "panda", "panda_wristcam_custom_rot"]
+    SUPPORTED_ROBOTS = ["panda_wristcam", "panda"]
     DEFAULT_TASK_PROMPT = TASK_PROMPTS["StackCube-v2"]
-    ROBOT_HOME_QPOS_PANDA = np.array(
-        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
-        dtype=np.float32,
-    )
-    ROBOT_HOME_QPOS_PANDA_WRISTCAM = np.array(
-        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
-        dtype=np.float32,
-    )
-    ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT = np.array(
-        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
-        dtype=np.float32,
-    )
 
     def __init__(self, *args, robot_uids="panda_wristcam", **kwargs):
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
@@ -67,37 +55,9 @@ class StackCubeV2Env(StackCubeEnv):
             material=sapien.render.RenderMaterial(base_color=[1, 0, 0, 1.0]),
         )
         self.mark = mark_builder.build_kinematic(name="mark")
-
-    def _reset_robot_retracted_qpos(self, env_idx: torch.Tensor):
-        b = len(env_idx)
-        if self.robot_uids == "panda":
-            base_qpos = self.ROBOT_HOME_QPOS_PANDA
-        elif self.robot_uids == "panda_wristcam":
-            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM
-        elif self.robot_uids == "panda_wristcam_custom_rot":
-            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT
-        else:
-            raise ValueError(f"Unsupported robot_uids: {self.robot_uids}")
-        qpos = np.repeat(base_qpos[None, :], b, axis=0)
-
-        if self._enhanced_determinism:
-            qpos = (
-                self._batched_episode_rng[env_idx].normal(
-                    0, self.robot_init_qpos_noise, len(base_qpos)
-                )
-                + qpos
-            )
-        else:
-            qpos = self._episode_rng.normal(
-                0, self.robot_init_qpos_noise, qpos.shape
-            ) + qpos
-
-        qpos[:, -2:] = 0.04
-        self.agent.reset(qpos)
-
+        
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         super()._initialize_episode(env_idx, options)
-        self._reset_robot_retracted_qpos(env_idx)
         with torch.device(self.device):
             b = len(env_idx)
             mark_p = torch.zeros((b, 3), device=self.device)

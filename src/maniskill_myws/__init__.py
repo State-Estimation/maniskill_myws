@@ -13,8 +13,7 @@ from __future__ import annotations
 
 
 def register() -> None:
-    """Import task and agent modules to trigger ManiSkill's decorators."""
-    from .agents.robots import panda_wristcam_customRot as _panda_wristcam_customRot  # noqa: F401
+    """Import task modules to trigger ManiSkill's @register_env decorators."""
     from .tasks import brush_solar_panel as _brush_solar_panel  # noqa: F401
     from .tasks import open_safe_door as _open_safe_door  # noqa: F401
     from .tasks import open_safe_door2 as _open_safe_door2  # noqa: F401

@@ -9,7 +9,7 @@ import torch
 from mani_skill.agents.robots import Panda
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.utils import randomization
-from mani_skill.sensors.camera import CameraConfig, Union
+from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils import sapien_utils
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table.scene_builder import TableSceneBuilder
@@ -17,7 +17,6 @@ from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import SimConfig, SceneConfig
 from maniskill_myws.task_prompts import TASK_PROMPTS
-from maniskill_myws.agents.robots.panda_wristcam_customRot import PandaWristCamCustomRot
 
 
 _Q_BEAM_Y: list[float] = [math.sqrt(2.0) / 2.0, 0.0, 0.0, math.sqrt(2.0) / 2.0]
@@ -39,8 +38,8 @@ class TakeSafetyHookEnv(BaseEnv):
     """
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
-    SUPPORTED_ROBOTS = ["panda", "panda_wristcam", "panda_wristcam_custom_rot"]
-    agent: Union[Panda, PandaWristCamCustomRot]
+    SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
+    agent: Panda
     DEFAULT_TASK_PROMPT = TASK_PROMPTS["TakeSafetyHook-v1"]
 
     ROBOT_HOME_QPOS_PANDA = np.array(
@@ -48,10 +47,6 @@ class TakeSafetyHookEnv(BaseEnv):
         dtype=np.float32,
     )
     ROBOT_HOME_QPOS_PANDA_WRISTCAM = np.array(
-        [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
-        dtype=np.float32,
-    )
-    ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT = np.array(
         [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
         dtype=np.float32,
     )
@@ -211,12 +206,8 @@ class TakeSafetyHookEnv(BaseEnv):
         b = len(env_idx)
         if self.robot_uids == "panda":
             base_qpos = self.ROBOT_HOME_QPOS_PANDA
-        elif self.robot_uids == "panda_wristcam":
-            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM
-        elif self.robot_uids == "panda_wristcam_custom_rot":
-            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM_CUSTOM_ROT
         else:
-            raise ValueError(f"Unsupported robot_uids: {self.robot_uids}")
+            base_qpos = self.ROBOT_HOME_QPOS_PANDA_WRISTCAM
         qpos = np.repeat(base_qpos[None, :], b, axis=0)
 
         if self._enhanced_determinism:

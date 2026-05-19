@@ -23,7 +23,7 @@ from maniskill_myws.tasks.sweep_solar_panel import SolarPanelStaticEnv
 from maniskill_myws.tasks.open_safe_door2 import OpenSafeDoor2Env
 from maniskill_myws.tasks.take_safety_hook import TakeSafetyHookEnv
 from maniskill_myws.tasks.turn_globe_valve import TurnGlobeValveEnv
-#from maniskill_myws.tasks.open_safe_door3 import OpenSafeDoor3Env
+from maniskill_myws.tasks.open_safe_door3 import OpenSafeDoor3Env
 @dataclass
 class Args:
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "OpenSafeDoor-v3"

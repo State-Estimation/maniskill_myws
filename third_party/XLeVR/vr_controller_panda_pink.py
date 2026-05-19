@@ -315,7 +315,6 @@ def compute_target_ee_pose(curr_vr_pos, curr_vr_quat, vr_ref_pos, vr_ref_quat,
     # --- orientation ---
     q_diff = tf_quat.qmult(curr_vr_quat, tf_quat.qinverse(vr_ref_quat))
     axis, angle = tf_quat.quat2axangle(q_diff)
-    #angle = -angle
     axis_sim = coord_transform @ axis
 
     if angle > np.pi:
