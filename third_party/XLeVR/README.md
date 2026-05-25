@@ -181,6 +181,7 @@ During normal tracking, the two frames converge. Divergence indicates either tra
 | `vr_controller_panda_simple2.py` | Legacy delta-pose version (`pd_ee_delta_pose`) |
 | `tools_in_maniskill/joint_state_access.md` | Reference: accessing robot state in ManiSkill |
 | `tools_in_maniskill/step_action_analysis.md` | Reference: action dispatch logic in ManiSkill |
+| `tools_in_maniskill/record_episode_analysis.md` | Reference: `RecordEpisode` internals, trajectory discard mechanism |
 
 ## Usage
 
@@ -209,5 +210,12 @@ python vr_controller_panda_pink.py \
 |---|---|
 | VR Squeeze | Enable tracking (hold to move robot) |
 | VR Trigger | Close gripper |
-| Keyboard `S` | Save trajectory + reset env |
+| Keyboard `S` | Save trajectory + advance seed |
+| Keyboard `D` | Discard current trajectory + retry with same seed |
 | Keyboard `Q` | Quit |
+
+#### Trajectory save / discard
+
+`S` calls `env.reset(seed=seed+1, save=True)` — the just-finished trajectory is flushed to `.h5`/`.json` and the seed advances.
+
+`D` calls `env.reset(seed=seed, save=False)` — the just-finished trajectory is **not** written to disk, and the seed is reused for the next attempt. This keeps `episode_id ↔ episode_seed` mapping 1:1 in the final output files. See [`record_episode_analysis.md`](tools_in_maniskill/record_episode_analysis.md) for the underlying `RecordEpisode` mechanics.

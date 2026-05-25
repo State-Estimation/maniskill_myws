@@ -204,7 +204,7 @@ class Args:
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TurnGlobeValve-v1"
     obs_mode: str = "rgb"
     robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam"
-    record_dir: str = "hdf5-trajectory"
+    record_dir: str = "demos2"
     viewer_shader: str = "rt-fast"
     # 灵敏度参数
     pos_sensitivity: float = 20.0 # Delta Pose 模式下，数值通常比较大，因为每一帧dt很小

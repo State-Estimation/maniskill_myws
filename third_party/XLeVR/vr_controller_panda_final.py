@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import numpy as np
+import torch
 import gymnasium as gym
 import asyncio
 from dataclasses import dataclass
@@ -228,6 +229,7 @@ class KeyState:
         self.lock = threading.Lock()
         self.save_pressed = False
         self.quit_pressed = False
+        self.discard_pressed = False
 
     def set_save(self):
         with self.lock:
@@ -236,6 +238,10 @@ class KeyState:
     def set_quit(self):
         with self.lock:
             self.quit_pressed = True
+    
+    def set_discard(self):
+        with self.lock:
+            self.discard_pressed = True
 
     def consume_save(self):
         with self.lock:
@@ -247,6 +253,12 @@ class KeyState:
         with self.lock:
             val = self.quit_pressed
             self.quit_pressed = False
+            return val
+        
+    def consume_discard(self):
+        with self.lock:
+            val = self.discard_pressed
+            self.discard_pressed = False
             return val
 
 
@@ -264,6 +276,9 @@ class KeyboardListener(threading.Thread):
                 elif key.char == 'q':
                     print("[Keyboard] Quit pressed")
                     self.key_state.set_quit()
+                elif key.char == 'd':
+                    print("[Keyboard] Discard pressed")
+                    self.key_state.set_discard()
             except AttributeError:
                 pass
 
@@ -359,7 +374,7 @@ task_list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2",
 
 @dataclass
 class Args:
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "OpenSafeDoor-v2"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TurnGlobeValve-v1"
     obs_mode: str = "rgb"
     robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam"
     record_dir: str = "demos2"
@@ -368,6 +383,7 @@ class Args:
     pos_scale: float = 1.0
     rot_scale: float = 1.0
     ik_error_threshold: float = 0.01  # IK error norm above which we pause
+    auto_end_success_frames: int = 10  # consecutive success frames to auto-end trajectory (0 = disable)
 
 
 def create_environment(args: Args):
@@ -406,11 +422,11 @@ def start_vr_thread():
 
 
 def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
-                    ik_error_threshold, base_seed):
+                    ik_error_threshold, auto_end_success_frames, base_seed):
     # ---- coordinate transform (VR → robot) ----
     coord_transform = np.array([
-        [0, 0, -1],
-        [-1, 0, 0],
+        [0, 0, 1],
+        [1, 0, 0],
         [0, 1, 0],
     ])
 
@@ -478,17 +494,21 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
     print("  [VR] Squeeze : Enable Tracking")
     print("  [VR] Trigger : Gripper")
     print("  [KB] S: Save | Q: Quit")
+    if auto_end_success_frames > 0:
+        print(f"  [Auto] End trajectory after {auto_end_success_frames} consecutive success frames")
     print("=" * 50 + "\n")
 
     num_trajs = 0
     seed = base_seed
     action_cmd = None
+    success_counter = 0
     last_idle_render = 0.0
     last_target_ee = None  # pin.SE3, for updating the viz frame
 
     while True:
         print(f"Collecting trajectory {num_trajs+1}, seed={seed}")
 
+        success_counter = 0
         action_dim = env.unwrapped.single_action_space.shape[0]
 
         while True:
@@ -648,6 +668,25 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
                     env.base_env.render_human()
                     last_idle_render = now
 
+            # ---- auto-end on consecutive success frames ----
+            if auto_end_success_frames > 0:
+                eval_result = env.base_env.evaluate()
+                if eval_result.get("success", False):
+                    if isinstance(eval_result["success"], torch.Tensor):
+                        is_success = bool(eval_result["success"].item())
+                    else:
+                        is_success = bool(eval_result["success"])
+                    if is_success:
+                        success_counter += 1
+                    else:
+                        success_counter = 0
+                else:
+                    success_counter = 0
+                if success_counter >= auto_end_success_frames:
+                    print(f"[Auto-End] {auto_end_success_frames} consecutive success frames, trajectory paused.")
+                    action_cmd = "auto_end"
+                    break
+
             # ---- keyboard commands ----
             if key_state.consume_quit():
                 action_cmd = "quit"
@@ -657,23 +696,51 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
                 action_cmd = "save"
                 break
 
+            if key_state.consume_discard():
+                action_cmd = "discard"
+                break
+
         if action_cmd == "quit":
             num_trajs += 1
             break
-        elif action_cmd == "save":
+
+        if action_cmd == "auto_end":
+            # Auto-success fired — let operator confirm or discard.
+            print("[Auto-End] Press [S] to save, [D] to discard, [Q] to quit.")
+            while True:
+                if key_state.consume_save():
+                    action_cmd = "save"
+                    break
+                if key_state.consume_discard():
+                    action_cmd = "discard"
+                    break
+                if key_state.consume_quit():
+                    action_cmd = "quit"
+                    break
+                env.base_env.render_human()
+                time.sleep(0.05)
+
+            if action_cmd == "quit":
+                break
+
+        if action_cmd == "save":
             num_trajs += 1
             seed += 1
             env.reset(seed=seed, options={"reconfigure": True})
-            env.base_env.render_human()
-            # Viewer frames are destroyed on reset; re-create them
-            target_frame_node, ee_frame_node = _create_viewer_frames(env)
-            # Reset persistent state so sim_target is re-initialized from new EE pose
-            sim_target_pos = None
-            sim_target_quat = None
-            last_valid_pos = None
-            last_valid_quat = None
-            last_target_ee = None
-            state = State.PAUSED_RELEASE
+        elif action_cmd == "discard":
+            print("Discarding trajectory...")
+            env.reset(seed=seed, save=False, options={"reconfigure": True})
+
+        env.base_env.render_human()
+        # Viewer frames are destroyed on reset; re-create them
+        target_frame_node, ee_frame_node = _create_viewer_frames(env)
+        # Reset persistent state so sim_target is re-initialized from new EE pose
+        sim_target_pos = None
+        sim_target_quat = None
+        last_valid_pos = None
+        last_valid_quat = None
+        last_target_ee = None
+        state = State.PAUSED_RELEASE
 
     env.close()
     print(f"Saved {num_trajs} trajectories.")
@@ -681,8 +748,8 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
 
 def main(args: Args):
     env = create_environment(args)
-    base_seed = args.number * 100
-    env.reset(seed=base_seed, options={"reconfigure": True})
+    base_seed = args.number * 200
+    env.reset(seed=base_seed, save=False, options={"reconfigure": True})
 
     latest_goal, vr_thread = start_vr_thread()
 
@@ -692,7 +759,7 @@ def main(args: Args):
 
     run_teleop_loop(env, latest_goal, key_state,
                     args.pos_scale, args.rot_scale,
-                    args.ik_error_threshold, base_seed)
+                    args.ik_error_threshold, args.auto_end_success_frames, base_seed)
 
 
 if __name__ == "__main__":

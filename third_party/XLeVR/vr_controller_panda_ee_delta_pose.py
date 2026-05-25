@@ -96,6 +96,7 @@ class KeyState:
         self.lock = threading.Lock()
         self.save_pressed = False
         self.quit_pressed = False
+        self.discard_pressed = False
 
     def set_save(self):
         with self.lock:
@@ -104,6 +105,10 @@ class KeyState:
     def set_quit(self):
         with self.lock:
             self.quit_pressed = True
+    
+    def set_discard(self):
+        with self.lock:
+            self.discard_pressed = True
 
     def consume_save(self):
         with self.lock:
@@ -117,7 +122,12 @@ class KeyState:
             self.quit_pressed = False
             return val
 
-
+    def consume_discard(self):
+        with self.lock:
+            val = self.discard_pressed
+            self.discard_pressed = False
+            return val
+        
 class KeyboardListener(threading.Thread):
     def __init__(self, key_state: KeyState):
         super().__init__(daemon=True)
@@ -132,6 +142,9 @@ class KeyboardListener(threading.Thread):
                 elif key.char == 'q':
                     print("[Keyboard] Quit pressed")
                     self.key_state.set_quit()
+                elif key.char == 'd':
+                    print("[Keyboard] Discard pressed")
+                    self.key_state.set_discard()
             except AttributeError:
                 pass
 
@@ -219,7 +232,7 @@ def calculate_action(goal, prev_vr_pos, prev_vr_rot, clutch_engaged, coord_trans
 # Main
 # =========================
 
-list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2", "SolarPanelStatic-v2", "TakeSafetyHook-v1", "TurnGlobeValve-v1"]
+task_list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2", "SolarPanelStatic-v2", "TakeSafetyHook-v1", "TurnGlobeValve-v1"]
 
 @dataclass
 class Args:
@@ -318,7 +331,11 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
             #     print(f"Action calculation time: {(time2 - time1)*1000:.2f} ms")
             prev_clutch_engaged = clutch_engaged
             
+            #env.step(action) #调试用，正式版注释掉
+            #env.base_env.render_human() #调试用，正式版注释掉
+
             if is_squeezing:
+                pass
                 #time3 = time.time()
                 env.step(action)
                 #time4 = time.time()
@@ -334,6 +351,10 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
             if key_state.consume_save():
                 action_cmd = "save"
                 break
+            
+            if key_state.consume_discard():
+                action_cmd = "discard"
+                break
 
         if action_cmd == "quit":
             num_trajs += 1
@@ -344,6 +365,9 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
             #env.base_env.sim_config = SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
             env.reset(seed=seed, options={"reconfigure": True})
             env.base_env.render_human()
+        elif action_cmd == "discard":
+            env.reset(seed=seed, save=False, options={"reconfigure": True})
+            env.base_env.render_human()
             
     env.close()
     print(f"Saved {num_trajs} trajectories.")
@@ -351,9 +375,8 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale):
 
 def main(args: Args):
     env = create_environment(args)
-    env.reset(seed=0,options={"reconfigure": True})
+    env.reset(seed=0,save=False, options={"reconfigure": True})
 
-    
     latest_goal, vr_thread = start_vr_thread()
 
     key_state = KeyState()
