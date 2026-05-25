@@ -39,7 +39,7 @@ def main() -> None:
     p.add_argument("--env-id", type=str, default="StackCube-v2")
     p.add_argument("--obs-mode", type=str, default="rgb")
     p.add_argument("--reward-mode", type=str, default="none")
-    p.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    p.add_argument("--control-mode", type=str, default="pd_joint_pos")
     p.add_argument("--render-mode", type=str, default=None, help="e.g. 'human' for visualization")
     p.add_argument(
         "--visualize-tcp-path",

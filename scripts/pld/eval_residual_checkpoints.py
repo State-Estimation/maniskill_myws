@@ -122,7 +122,7 @@ def main() -> None:
     parser.add_argument("--env-id", type=str, default="OpenSafeDoor-v2")
     parser.add_argument("--obs-mode", type=str, default="rgb")
     parser.add_argument("--reward-mode", type=str, default="sparse")
-    parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    parser.add_argument("--control-mode", type=str, default="pd_joint_pos")
     parser.add_argument("--render-mode", type=str, default=None)
     parser.add_argument("--num-episodes", type=int, default=20)
     parser.add_argument("--start-seed", type=int, default=0)

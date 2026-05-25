@@ -10,7 +10,7 @@
 
 **环境建议参数**
 - `robot_uids="panda_wristcam"`（提供 wrist 相机）
-- `control_mode="pd_ee_delta_pose"`（7D action）
+- `control_mode="pd_joint_pos"`（8D action：7 个 Panda 关节目标 + 1 个 gripper 目标）
 - `obs_mode="rgb"`（标准 RGB 观测）
 - `reward_mode="none"`（数据采集不需要奖励）
 
@@ -38,7 +38,7 @@
 - `image`: HWC uint8（来自 `base_camera`）
 - `wrist_image`: HWC uint8（来自 `hand_camera`，**必须存在**）
 - `state`: 1D float32（由 `qpos + qvel + tcp_pose` 拼接）
-- `actions`: 7D float32（`pd_ee_delta_pose`）
+- `actions`: 8D float32（`pd_joint_pos`：7 个 arm joint position target + 1 个 gripper target）
 - `task`: str（作为 prompt；统一从 `DEFAULT_TASK_PROMPT` 获取）
 
 ---
@@ -56,7 +56,7 @@ import gymnasium as gym
 import maniskill_myws
 
 maniskill_myws.register()
-env = gym.make("StackCube-v2", obs_mode="rgb", reward_mode="none", control_mode="pd_ee_delta_pose")
+env = gym.make("StackCube-v2", obs_mode="rgb", reward_mode="none", control_mode="pd_joint_pos")
 ```
 
 ---
@@ -69,18 +69,20 @@ env = gym.make("StackCube-v2", obs_mode="rgb", reward_mode="none", control_mode=
 python -m mani_skill.trajectory.replay_trajectory \
   --traj-path /path/to/original_trajectory.h5 \
   --obs-mode rgb \
-  --target-control-mode pd_ee_delta_pose \
+  --target-control-mode pd_joint_pos \
   --save-traj \
   --render-mode sensors
 ```
 
-> replay 会输出新的 `.h5 + .json`，其中 obs 已对齐到 `rgb` + `pd_ee_delta_pose`。
+> replay 会输出新的 `.h5 + .json`，其中 obs 已对齐到 `rgb` + `pd_joint_pos`。
+> 如果原始轨迹已经是 `pd_joint_pos`，`--target-control-mode pd_joint_pos` 只是显式声明目标格式；如果原始轨迹是 `pd_ee_delta_pose`，ManiSkill 官方 replay 当前不支持直接反向转换到 `pd_joint_pos`，建议重新采集或写专门的 qpos-target 转换脚本。
 
 如果需要采集 PLD Algorithm 1 中的 `πb` 成功 rollout 数据，而不是摇操/专家数据，可以直接连接 OpenPI server 采集标准 ManiSkill `.h5 + .json`：
 
 ```bash
 python scripts/pld/collect_base_policy_dataset.py \
   --env-id OpenSafeDoor-v2 \
+  --control-mode pd_joint_pos \
   --server ws://127.0.0.1:8000 \
   --num-successes 50 \
   --max-attempts 200 \
@@ -88,7 +90,7 @@ python scripts/pld/collect_base_policy_dataset.py \
   --trajectory-name pi0_base_policy
 ```
 
-该脚本默认使用 `obs_mode=rgb`、`reward_mode=none`、`control_mode=pd_ee_delta_pose`、`robot_uids=panda_wristcam`，只保存成功 episode。输出可直接作为 PLD 的 `--offline-h5-dir`，也可以继续按下一节转成 LeRobot dataset。
+该脚本应使用 `obs_mode=rgb`、`reward_mode=none`、`control_mode=pd_joint_pos`、`robot_uids=panda_wristcam`，只保存成功 episode。若脚本默认值尚未更新，请显式传入 `--control-mode pd_joint_pos`。输出可直接作为 PLD 的 `--offline-h5-dir`，也可以继续按下一节转成 LeRobot dataset。
 
 ---
 
@@ -112,4 +114,5 @@ python scripts/convert_traj_to_lerobot.py \
 ## F) 训练提示
 
 - openpi 训练配置中设置 `prompt_from_task=True`
-- 当前仓库默认推荐先用 `pi05_libero` 验证完整管线；如果显存紧张，再考虑 `pi0_libero_low_mem_finetune`
+- 当前仓库的 ManiSkill 训练、验证、部署默认使用 `pi0_maniskill`
+- `pi0_libero` / `pi05_libero` 保留给 openpi 官方 LIBERO 配置，不再作为本仓库 ManiSkill `pd_joint_pos` checkpoint 的推荐入口

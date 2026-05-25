@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 
-DEFAULT_OFFLINE_DIR = "dataset/Replayed_traj_data_openSafeDoor2"
+DEFAULT_OFFLINE_DIR = "dataset/Pi0_rollout_OpenSafeDoor-v2"
 DEFAULT_STATE_KEYS = ["agent/qpos", "agent/qvel", "extra/tcp_pose"]
 
 

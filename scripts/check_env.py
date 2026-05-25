@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--env-id", type=str, default="TurnGlobeValve-v1")
     parser.add_argument("--obs-mode", type=str, default="state")
     parser.add_argument("--reward-mode", type=str, default="none")
-    parser.add_argument("--control-mode", type=str, default="pd_ee_delta_pose")
+    parser.add_argument("--control-mode", type=str, default="pd_joint_pos")
     args = parser.parse_args()
 
     # Allow running without `pip install -e .` by adding repo/src to PYTHONPATH.

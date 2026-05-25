@@ -7,7 +7,7 @@
 本方案强调三点：
 - **可复现**：明确依赖与版本固定方式
 - **低耦合**：`openpi` 保持外部依赖（可 editable 开发），ManiSkill 适配代码只放在 `maniskill_myws`
-- **与 openpi LIBERO 例子一致**：两路相机 + state + 7D action
+- **与 openpi LIBERO 例子一致**：两路相机 + state + chunked action；本仓库统一使用 `pd_joint_pos` 8D action
 
 ---
 
@@ -16,7 +16,7 @@
 ### 推荐目录与职责
 - `src/maniskill_myws/openpi_bridge/`: 只放“桥接层”
   - ManiSkill obs → openpi policy 输入 dict
-  - openpi 输出 action chunk → ManiSkill `pd_ee_delta_pose` action（7D）流式执行
+  - openpi 输出 action chunk → ManiSkill `pd_joint_pos` action（8D）流式执行
 - `scripts/`:
   - `inspect_traj_h5.py`: 查看 RecordEpisode `.h5` 的键与 shape（先解决“我的数据到底长什么样”）
   - `convert_traj_to_lerobot.py`: `.h5` → LeRobot dataset（与 openpi LIBERO 示例同 schema）
@@ -55,7 +55,7 @@ openpi 的 LIBERO 转换脚本定义的 LeRobot dataset 特征（我们建议保
 - `image`: (H,W,3) uint8 或 image dtype（第三人称/基座相机）
 - `wrist_image`: (H,W,3)（腕部相机，必须存在）
 - `state`: 1D float32（建议 8~32 维均可；openpi 会 pad 到 `action_dim`）
-- `actions`: 7D float32（对应 `pd_ee_delta_pose`：一般是 6D Δpose + gripper）
+- `actions`: 8D float32（对应 `pd_joint_pos`：7 个 Panda arm joint position target + 1 个 gripper target）
 - `task`: str（统一从 `DEFAULT_TASK_PROMPT` 获取）
 
 训练时在 openpi config 里设置 `prompt_from_task=True`，即可把 `task` 当作 prompt 使用。
@@ -95,9 +95,11 @@ python scripts/convert_traj_to_lerobot.py \
 
 ---
 
-## 4) 用 openpi 的现有训练 config 直接训练（无需改 openpi 源码）
+## 4) 用 `pi0_maniskill` 训练 ManiSkill checkpoint
 
 训练与 norm stats 计算**都在 openpi 的 uv 环境**中完成。推荐使用 myws 的一键脚本：
+
+> ManiSkill 数据集请使用 `pi0_maniskill`。`pi0_libero` / `pi05_libero` 保留为 openpi 官方 LIBERO 相关配置，不建议再用于本仓库的 ManiSkill `pd_joint_pos` 训练或部署。
 
 ### 推荐：用 myws 提供的“一键微调脚本”（计算 norm stats + 启动训练）
 
@@ -107,9 +109,9 @@ python scripts/convert_traj_to_lerobot.py \
 cd third_party/openpi
 uv run python ../../scripts/pi0/finetune_maniskill.py \
   --openpi-root . \
-  --config pi05_libero \
+  --config pi0_maniskill \
   --repo-id local/maniskill_myws_multitask \
-  --exp-name ms_pi05_v1 \
+  --exp-name ms_pi0_maniskill_v1 \
   --assets-base-dir ../../assets_openpi \
   --checkpoint-base-dir ../../checkpoints_openpi \
   --overwrite
@@ -120,15 +122,15 @@ uv run python ../../scripts/pi0/finetune_maniskill.py \
 cd third_party/openpi
 uv run python ../../scripts/pi0/finetune_maniskill.py \
   --openpi-root . \
-  --config pi05_libero \
+  --config pi0_maniskill \
   --repo-id local/maniskill_myws_multitask \
-  --exp-name ms_pi05_v1 \
+  --exp-name ms_pi0_maniskill_v1 \
   --assets-base-dir ../../assets_openpi \
   --checkpoint-base-dir ../../checkpoints_openpi \
   --only-norm-stats
 ```
 
-如果你显存不足，优先用 openpi 提供的 LoRA 例子（`pi0_libero_low_mem_finetune`）。
+如果你显存不足，可以再基于 `pi0_maniskill` 拆一个 ManiSkill 专用 LoRA 配置；不要直接复用 `pi0_libero_low_mem_finetune` 来训练 ManiSkill checkpoint。
 
 ### 4.1 转换是否正确？（离线验证清单）
 在“任务表现”之前，先确认**数据格式/管线完全正确**。推荐在 openpi(uv) 环境中做离线验证：
@@ -137,7 +139,7 @@ uv run python ../../scripts/pi0/finetune_maniskill.py \
 cd third_party/openpi
 uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
   --openpi-root . \
-  --config pi05_libero \
+  --config pi0_maniskill \
   --repo-id local/maniskill_myws_multitask \
   --assets-base-dir ../../assets_openpi \
   --num-batches 1 \
@@ -146,7 +148,7 @@ uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
 
 你应该看到：
 - observation 里有 `images/*`、`state`（以及 `prompt` 若 `prompt_from_task=True`）
-- `actions` 维度是 `(B, horizon, 7)` 或等价结构（取决于 config 的 action 序列键）
+- `actions` 维度是 `(B, horizon, 8)` 或等价结构（取决于 config 的 action 序列键）
 - 保存出来的样例图像内容正常（不是全黑/全 0），腕部相机若任务无该视角可能会“缺失/全 0”
 
 ---
@@ -156,26 +158,24 @@ uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
 如果你希望 rollout 时 **策略进程与 ManiSkill 进程完全分离**（依赖隔离/跨机器推理），推荐使用 openpi 自带的 websocket 推理服务端：
 
 ### 5.1 服务端（GPU 机器 / policy 环境，openpi uv）
-推荐直接用 openpi 的默认 LIBERO expert（π0.5-LIBERO）：
-
-```bash
-cd third_party/openpi
-uv run python scripts/serve_policy.py --env LIBERO --port 8000
-```
-
-或者用 myws 的 wrapper（支持在 import JAX 前设置 `XLA_FLAGS`）：
+ManiSkill checkpoint 推荐用 myws 的 wrapper（支持在 import JAX 前设置 `XLA_FLAGS`），并显式选择 `pi0_maniskill`：
 
 ```bash
 cd third_party/openpi
 uv run python ../../scripts/pi0/serve.py \
-  --config pi05_libero \
-  --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
-  --port 8000
+  --config pi0_maniskill \
+  --checkpoint ../../checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_v1/<step> \
+  --port 8000 \
+  --xla-safe
 ```
 
 对于你自己微调出来的 checkpoint，`serve.py` 会优先从 checkpoint 下的
 `assets/*/norm_stats.json` 自动推断训练时的 `repo_id/asset_id`，从而保证评测时读取的 norm 统计与训练时一致。
 只有当 checkpoint 里存在多份资产，或者你想手动覆盖时，才需要额外传 `--repo-id` 或 `--norm-stats`。
+
+历史 checkpoint 如果仍保存在 `checkpoints_openpi/pi0_libero/...` 目录下，也请照样用 `--config pi0_maniskill` 启动；目录名不决定推理 transform。
+
+如果你要跑 openpi 官方 LIBERO expert，可以仍然使用 `scripts/serve_policy.py --env LIBERO` 或 `--config pi05_libero`；这条路径不适用于本仓库的 ManiSkill `pd_joint_pos` checkpoint。
 
 ### 5.2 客户端（你的 myws / ManiSkill 环境）
 用 ManiSkill 侧脚本连接服务端（只需 `ws://host:port`）。
@@ -188,17 +188,17 @@ python scripts/pi0/run_pi0_remote.py \
   --env-id TurnGlobeValve-v1 \
   --server ws://<server_ip>:8000 \
   --obs-mode rgb \
+  --control-mode pd_joint_pos \
   --image-key sensor_data/base_camera/rgb \
   --wrist-image-key sensor_data/hand_camera/rgb \
   --state-keys agent/qpos agent/qvel extra/tcp_pose \
-  --render-mode human \
-  --visualize-tcp-path
+  --render-mode human
 ```
 
 说明：
 - 客户端侧会把图片 **resize_with_pad 到 224x224 并转 uint8**，减少带宽/延迟（与 openpi 推荐一致）
 - server 会返回 action chunk；客户端会 open-loop 执行 chunk 里的逐步 action
-- `--visualize-tcp-path` 会在实时 viewer 中绘制当前 action chunk：蓝色是模型预测的未来 TCP chunk，橙色是实际执行后的 TCP 轨迹采样。marker 只在 `env.render()` 时显示，不会进入策略输入图像。
+- `pd_joint_pos` action 的前三维是关节目标，不再是 TCP 位移；旧的 `--visualize-tcp-path`/`--base-chunk-position-scale` 只适用于 EE delta action。切到 `pd_joint_pos` 后应先禁用该可视化，或改成用 FK 将 joint target chunk 投影成 TCP 路径。
 
 ### 5.3 Multi-seed 评测与实时渲染
 
@@ -210,12 +210,10 @@ conda activate mani_skill
 python scripts/pi0/run_pi0_remote_multi_seed.py \
   --env-id OpenSafeDoor-v2 \
   --server ws://<server_ip>:8000 \
+  --control-mode pd_joint_pos \
   --num-seeds 20 \
   --start-seed 0 \
   --render-mode human \
-  --visualize-tcp-path \
-  --base-chunk-max-actions 16 \
-  --base-chunk-position-scale 0.1 \
   --save-videos \
   --video-views both
 ```
@@ -226,7 +224,7 @@ python scripts/pi0/run_pi0_remote_multi_seed.py \
 - `--video-views base|wrist|both`：选择输出 `base_camera`、`hand_camera` 或两者都保存
 - `--image-key` / `--wrist-image-key`：覆盖默认观测键；默认分别是 `sensor_data/base_camera/rgb` 和 `sensor_data/hand_camera/rgb`
 - `--image-every`：每隔多少步保存一帧（同时影响图片和视频采样密度）
-- `--base-chunk-max-actions` / `--base-chunk-position-scale`：控制蓝色 chunk 的长度和 action 到 TCP 位移的投影比例
+- `--base-chunk-max-actions` / `--base-chunk-position-scale`：仅适用于 EE delta action 的 TCP 路径可视化；`pd_joint_pos` 需要 FK-based 路径可视化后再启用
 - `--base-path-color` / `--residual-path-color` / `--path-radius`：控制 viewer 中 marker 的颜色和大小
 
 注意：

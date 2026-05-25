@@ -11,7 +11,7 @@ Why this exists:
 
 Server usage (GPU machine / policy env):
   conda activate <openpi_env>
-  cd third_party/openpi && uv run python ../../scripts/pi0/serve.py --config pi05_libero --checkpoint gs://openpi-assets/checkpoints/pi05_libero --port 8000
+  cd third_party/openpi && uv run python ../../scripts/pi0/serve.py --config pi0_maniskill --checkpoint ../../checkpoints_openpi/pi0_maniskill/<exp>/<step> --port 8000
 
 Client usage (ManiSkill env):
   python scripts/pi0/run_pi0_remote.py --server ws://<ip>:8000 ...
@@ -110,7 +110,12 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--host", type=str, default="0.0.0.0")
     p.add_argument("--port", type=int, default=8000)
-    p.add_argument("--config", type=str, default="pi05_libero", help="openpi config name (e.g. pi0_libero/pi05_libero)")
+    p.add_argument(
+        "--config",
+        type=str,
+        default="pi0_maniskill",
+        help="openpi config name (e.g. pi0_maniskill/pi0_libero/pi05_libero)",
+    )
     p.add_argument("--checkpoint", type=str, required=True, help="Checkpoint dir (local path or gs://...)")
     p.add_argument(
         "--repo-id",
