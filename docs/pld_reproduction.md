@@ -106,9 +106,9 @@ For a real PLD run, start the pi0/openpi server first:
 ```bash
 cd third_party/openpi
 uv run python ../../scripts/pi0/serve.py \
-  --config pi05_libero \
-  --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
-  --port 8000
+  --config pi0_maniskill \
+  --checkpoint ../../checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_v1/<step> \
+  --port 8000 \
 ```
 
 Then train the residual specialist from the ManiSkill environment:
@@ -390,7 +390,7 @@ Then launch the existing openpi fine-tuning helper:
 cd third_party/openpi
 uv run python ../../scripts/pi0/finetune_maniskill.py \
   --openpi-root . \
-  --config pi05_libero \
+  --config pi0_maniskill \
   --repo-id local/pld_open_safe_door_v2 \
   --assets-base-dir ../../assets_openpi \
   --checkpoint-base-dir ../../checkpoints_openpi \

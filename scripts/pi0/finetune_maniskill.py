@@ -13,9 +13,9 @@ Usage (recommended, inside openpi repo):
   cd third_party/openpi
   uv run python ../../scripts/pi0/finetune_maniskill.py \\
     --openpi-root . \\
-    --config pi05_libero \\
+    --config pi0_maniskill \\
     --repo-id local/maniskill_myws_turn_globe_valve \\
-    --exp-name ms_pi05_v1 \\
+    --exp-name ms_pi0_maniskill_v1 \\
     --assets-base-dir ../../assets_openpi \\
     --checkpoint-base-dir ../../checkpoints_openpi \\
     --overwrite
@@ -143,7 +143,12 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--openpi-root", type=str, default=None, help="Path to openpi repo (optional if openpi installed).")
 
-    p.add_argument("--config", type=str, default="pi05_libero", help="openpi config name (pi0_libero / pi05_libero)")
+    p.add_argument(
+        "--config",
+        type=str,
+        default="pi0_maniskill",
+        help="openpi config name (use pi0_maniskill for ManiSkill datasets)",
+    )
     p.add_argument("--repo-id", type=str, required=True, help="LeRobot dataset repo_id (local/... or hf_user/...)")
     p.add_argument("--exp-name", type=str, required=True)
 

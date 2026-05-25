@@ -95,9 +95,11 @@ python scripts/convert_traj_to_lerobot.py \
 
 ---
 
-## 4) 用 openpi 的现有训练 config 直接训练（无需改 openpi 源码）
+## 4) 用 `pi0_maniskill` 训练 ManiSkill checkpoint
 
 训练与 norm stats 计算**都在 openpi 的 uv 环境**中完成。推荐使用 myws 的一键脚本：
+
+> ManiSkill 数据集请使用 `pi0_maniskill`。`pi0_libero` / `pi05_libero` 保留为 openpi 官方 LIBERO 相关配置，不建议再用于本仓库的 ManiSkill `pd_joint_pos` 训练或部署。
 
 ### 推荐：用 myws 提供的“一键微调脚本”（计算 norm stats + 启动训练）
 
@@ -107,9 +109,9 @@ python scripts/convert_traj_to_lerobot.py \
 cd third_party/openpi
 uv run python ../../scripts/pi0/finetune_maniskill.py \
   --openpi-root . \
-  --config pi05_libero \
+  --config pi0_maniskill \
   --repo-id local/maniskill_myws_multitask \
-  --exp-name ms_pi05_v1 \
+  --exp-name ms_pi0_maniskill_v1 \
   --assets-base-dir ../../assets_openpi \
   --checkpoint-base-dir ../../checkpoints_openpi \
   --overwrite
@@ -120,15 +122,15 @@ uv run python ../../scripts/pi0/finetune_maniskill.py \
 cd third_party/openpi
 uv run python ../../scripts/pi0/finetune_maniskill.py \
   --openpi-root . \
-  --config pi05_libero \
+  --config pi0_maniskill \
   --repo-id local/maniskill_myws_multitask \
-  --exp-name ms_pi05_v1 \
+  --exp-name ms_pi0_maniskill_v1 \
   --assets-base-dir ../../assets_openpi \
   --checkpoint-base-dir ../../checkpoints_openpi \
   --only-norm-stats
 ```
 
-如果你显存不足，优先用 openpi 提供的 LoRA 例子（`pi0_libero_low_mem_finetune`）。
+如果你显存不足，可以再基于 `pi0_maniskill` 拆一个 ManiSkill 专用 LoRA 配置；不要直接复用 `pi0_libero_low_mem_finetune` 来训练 ManiSkill checkpoint。
 
 ### 4.1 转换是否正确？（离线验证清单）
 在“任务表现”之前，先确认**数据格式/管线完全正确**。推荐在 openpi(uv) 环境中做离线验证：
@@ -137,7 +139,7 @@ uv run python ../../scripts/pi0/finetune_maniskill.py \
 cd third_party/openpi
 uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
   --openpi-root . \
-  --config pi05_libero \
+  --config pi0_maniskill \
   --repo-id local/maniskill_myws_multitask \
   --assets-base-dir ../../assets_openpi \
   --num-batches 1 \
@@ -156,26 +158,24 @@ uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
 如果你希望 rollout 时 **策略进程与 ManiSkill 进程完全分离**（依赖隔离/跨机器推理），推荐使用 openpi 自带的 websocket 推理服务端：
 
 ### 5.1 服务端（GPU 机器 / policy 环境，openpi uv）
-推荐直接用 openpi 的默认 LIBERO expert（π0.5-LIBERO）：
-
-```bash
-cd third_party/openpi
-uv run python scripts/serve_policy.py --env LIBERO --port 8000
-```
-
-或者用 myws 的 wrapper（支持在 import JAX 前设置 `XLA_FLAGS`）：
+ManiSkill checkpoint 推荐用 myws 的 wrapper（支持在 import JAX 前设置 `XLA_FLAGS`），并显式选择 `pi0_maniskill`：
 
 ```bash
 cd third_party/openpi
 uv run python ../../scripts/pi0/serve.py \
-  --config pi05_libero \
-  --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
-  --port 8000
+  --config pi0_maniskill \
+  --checkpoint ../../checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_v1/<step> \
+  --port 8000 \
+  --xla-safe
 ```
 
 对于你自己微调出来的 checkpoint，`serve.py` 会优先从 checkpoint 下的
 `assets/*/norm_stats.json` 自动推断训练时的 `repo_id/asset_id`，从而保证评测时读取的 norm 统计与训练时一致。
 只有当 checkpoint 里存在多份资产，或者你想手动覆盖时，才需要额外传 `--repo-id` 或 `--norm-stats`。
+
+历史 checkpoint 如果仍保存在 `checkpoints_openpi/pi0_libero/...` 目录下，也请照样用 `--config pi0_maniskill` 启动；目录名不决定推理 transform。
+
+如果你要跑 openpi 官方 LIBERO expert，可以仍然使用 `scripts/serve_policy.py --env LIBERO` 或 `--config pi05_libero`；这条路径不适用于本仓库的 ManiSkill `pd_joint_pos` checkpoint。
 
 ### 5.2 客户端（你的 myws / ManiSkill 环境）
 用 ManiSkill 侧脚本连接服务端（只需 `ws://host:port`）。

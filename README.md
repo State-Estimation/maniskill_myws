@@ -100,14 +100,16 @@ python -m pip install -e third_party/openpi/packages/openpi-client
 ```bash
 cd third_party/openpi
 uv run python ../../scripts/pi0/serve.py \
-  --config pi05_libero \
-  --checkpoint gs://openpi-assets/checkpoints/pi05_libero \
+  --config pi0_maniskill \
+  --checkpoint ../../checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_v1/<step> \
   --port 8000
 ```
 
-自定义微调 checkpoint 也可以直接这样启动。`serve.py` 会优先从 checkpoint 下的 `assets/*/norm_stats.json`
+ManiSkill 训练/部署请使用 `pi0_maniskill`；`pi0_libero` / `pi05_libero` 只保留给 openpi 官方 LIBERO 配置。`serve.py` 会优先从 checkpoint 下的 `assets/*/norm_stats.json`
 自动推断训练时使用的 `repo_id/asset_id`；只有在 checkpoint 里有多份资产、或者你想强制覆盖时，才需要额外传
 `--repo-id` 或 `--norm-stats`。
+
+历史 checkpoint 如果仍保存在 `checkpoints_openpi/pi0_libero/...` 目录下，也请照样用 `--config pi0_maniskill` 启动；目录名不决定推理 transform。
 
 2) **启动 ManiSkill 客户端（mani_skill 环境）**
 ```bash

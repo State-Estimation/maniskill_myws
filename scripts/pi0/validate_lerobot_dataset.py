@@ -3,7 +3,7 @@
 Offline sanity-check for ManiSkill -> LeRobot conversion against openpi's expectations.
 
 Runs in the openpi (uv) environment. It:
-  - loads an openpi TrainConfig (e.g. pi05_libero)
+  - loads an openpi TrainConfig (e.g. pi0_maniskill)
   - overrides repo_id / assets_base_dir (so it finds your norm stats)
   - builds openpi dataloader
   - prints a compact summary of shapes/dtypes/ranges
@@ -13,7 +13,7 @@ Example:
   cd third_party/openpi
   uv run python ../../scripts/pi0/validate_lerobot_dataset.py \
     --openpi-root . \
-    --config pi05_libero \
+    --config pi0_maniskill \
     --repo-id local/maniskill_myws_multitask \
     --assets-base-dir ../../assets_openpi \
     --num-batches 1 \
@@ -93,7 +93,7 @@ def _maybe_save_image(path: Path, image_any: Any) -> None:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--openpi-root", type=str, default=None)
-    p.add_argument("--config", type=str, default="pi05_libero")
+    p.add_argument("--config", type=str, default="pi0_maniskill")
     p.add_argument("--repo-id", type=str, required=True)
     p.add_argument("--assets-base-dir", type=str, required=True, help="Must match where norm stats were written.")
     p.add_argument("--batch-size", type=int, default=None)
@@ -157,4 +157,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
