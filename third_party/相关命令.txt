@@ -49,4 +49,6 @@ python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
 
 unset all_proxy
 unset ALL_PROXY
+unset HF_ENDPOINT
+unset HF_MIRROR
 hf upload Riverdust/Maniskill_myws_space_datasets ./Replayed_traj_data_openSafeDoor2.tar.xz --repo-type=dataset

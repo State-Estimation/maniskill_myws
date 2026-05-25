@@ -360,7 +360,7 @@ task_list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2",
 
 @dataclass
 class Args:
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TurnGlobeValve-v1"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "OpenSafeDoor-v2"
     obs_mode: str = "rgb"
     robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam_custom_rot"
     record_dir: str = "demos2"
@@ -411,8 +411,8 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
                     ik_error_threshold, auto_end_success_frames, base_seed):
     # ---- coordinate transform (VR → robot) ----
     coord_transform = np.array([
-        [0, 0, 1],
-        [1, 0, 0],
+        [0, 0, -1],
+        [-1, 0, 0],
         [0, 1, 0],
     ])
 
