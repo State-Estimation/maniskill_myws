@@ -12,7 +12,7 @@ dir_path = sys.argv[1]
 pre_fix = sys.argv[2]
 out_dir = f"{dir_path}/{pre_fix}"
 os.makedirs(out_dir, exist_ok=True)
-mesh = trimesh.load(f"{dir_path}/{pre_fix}.STL", force="mesh")
+mesh = trimesh.load(f"{dir_path}/{pre_fix}.glb", force="mesh")
 mesh = coacd.Mesh(mesh.vertices, mesh.faces)
 
 parts = coacd.run_coacd(

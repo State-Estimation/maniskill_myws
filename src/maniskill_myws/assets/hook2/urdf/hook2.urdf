@@ -11,7 +11,7 @@
         xyz="-0.0038515 4.4248E-18 -0.027391"
         rpy="0 0 0" />
       <mass
-        value="0.072357" />
+        value="100" />
       <inertia
         ixx="6.2521E-05"
         ixy="4.9377E-22"
@@ -23,10 +23,10 @@
     <visual>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://hook2/meshes/frame_link.STL" />
+          filename="package://hook2/meshes/frame_link.glb" />
       </geometry>
       <material
         name="">
@@ -37,7 +37,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/frame_link/part_0.glb" />
@@ -46,7 +46,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/frame_link/part_1.glb" />
@@ -55,7 +55,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/frame_link/part_2.glb" />
@@ -64,7 +64,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/frame_link/part_3.glb" />
@@ -73,7 +73,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/frame_link/part_4.glb" />
@@ -82,7 +82,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/frame_link/part_5.glb" />
@@ -91,7 +91,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/frame_link/part_6.glb" />
@@ -117,10 +117,10 @@
     <visual>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://hook2/meshes/bar_link.STL" />
+          filename="package://hook2/meshes/bar_link.glb" />
       </geometry>
       <material
         name="">
@@ -131,7 +131,7 @@
     <collision>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://hook2/meshes/bar_link/part_0.glb" />

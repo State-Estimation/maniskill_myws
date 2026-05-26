@@ -71,7 +71,7 @@ class TakeSafetyHookEnv(BaseEnv):
         beam_radius: float = 0.005,
         beam_center_x: float = -0.03,
         beam_center_y: float = 0.0,
-        beam_center_z: float = 0.3,
+        beam_center_z: float = 0.60,
         beam_center_x_noise: float = 0.015,
         beam_center_y_noise: float = 0.015,
         beam_center_z_noise: float = 0.02,
@@ -81,9 +81,9 @@ class TakeSafetyHookEnv(BaseEnv):
         hook_rod_local_x: float = 0.0,
         hook_top_local_z: float | None = None,
         hook_rod_clearance: float = 0.002,
-        gate_closed_qpos: float = 0.05,
-        gate_open_qpos: float = -0.56,
-        gate_spring_stiffness: float = 2.0,
+        gate_closed_qpos: float = 0.09,
+        gate_open_qpos: float = -0.55,
+        gate_spring_stiffness: float = 0.5,
         gate_spring_damping: float = 0.15,
         gate_force_limit: float = 0.8,
         gate_friction: float = 0.01,
@@ -183,7 +183,7 @@ class TakeSafetyHookEnv(BaseEnv):
 
     @property
     def _default_human_render_camera_configs(self):
-        pose = sapien_utils.look_at([-0.4, -0.4, self.beam_center_z+0.02], [0.0, 0.0, 0.2])
+        pose = sapien_utils.look_at([-0.3, -0.2, self.beam_center_z+0.05], [0.0, 0.05, 0.2])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1)
 
     def _load_agent(self, options: dict):
@@ -388,7 +388,7 @@ class TakeSafetyHookEnv(BaseEnv):
         progress = torch.clamp(
             (self.gate_closed_qpos - gate_angle) / open_span, 0.0, 1.0
         )
-        success = progress >= torch.tensor(0.75, device=self.device)
+        success = progress >= torch.tensor(1.2, device=self.device)
 
         return {
             "success": success,
