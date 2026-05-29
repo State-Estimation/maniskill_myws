@@ -114,5 +114,5 @@ python scripts/convert_traj_to_lerobot.py \
 ## F) 训练提示
 
 - openpi 训练配置中设置 `prompt_from_task=True`
-- 当前仓库的 ManiSkill 训练、验证、部署默认使用 `pi0_maniskill`
+- 当前仓库的 ManiSkill 训练、验证、部署默认使用 `pi0_maniskill` 或 `pi05_maniskill`
 - `pi0_libero` / `pi05_libero` 保留给 openpi 官方 LIBERO 配置，不再作为本仓库 ManiSkill `pd_joint_pos` checkpoint 的推荐入口
