@@ -425,8 +425,8 @@ def run_teleop_loop(env, latest_goal, key_state, pos_scale, rot_scale,
                     ik_error_threshold, auto_end_success_frames, base_seed):
     # ---- coordinate transform (VR → robot) ----
     coord_transform = np.array([
-        [0, 0, -1],
-        [-1, 0, 0],
+        [0, 0, 1],
+        [1, 0, 0],
         [0, 1, 0],
     ])
 

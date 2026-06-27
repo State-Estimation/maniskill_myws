@@ -68,21 +68,31 @@ class TakeSafetyHookEnv(BaseEnv):
         beam_robot_side_length: float = 0.06,
         beam_far_side_length: float | None = None,
         beam_end_margin: float = 0.04,
-        beam_radius: float = 0.005,
-        beam_center_x: float = -0.03,
+        beam_radius: float = 0.003,
+        beam_center_x: float = 0.03,
         beam_center_y: float = 0.0,
-        beam_center_z: float = 0.60,
+        beam_center_z: float = 0.20,
         beam_center_x_noise: float = 0.015,
         beam_center_y_noise: float = 0.015,
         beam_center_z_noise: float = 0.02,
-        beam_yaw_noise: float = 0.0,
+        beam_yaw_noise: float = 0.01,
+        beam_pitch: float = math.pi / 2 ,
         hook_on_beam_y_range: float = 0.04,
-        hook_on_beam_center_offset: float = 0.02,
+        hook_on_beam_center_offset: float = 0.08,
         hook_rod_local_x: float = 0.0,
         hook_top_local_z: float | None = None,
         hook_rod_clearance: float = 0.002,
-        gate_closed_qpos: float = 0.09,
-        gate_open_qpos: float = -0.55,
+        # Cradle shelves: small plates bound to the rod that keep the hook seated at
+        # reset. They form a U open toward the robot (left / right / back walls).
+        hook_half_width_x: float = 0.028,
+        hook_half_depth_y: float = 0.020,
+        shelf_thickness: float = 0.004,
+        shelf_height: float = 0.02,
+        shelf_gap: float = 0.001,
+        shelf_center_z: float = -0.0,
+        upper_shelf_center_z: float = 0.013,
+        gate_closed_qpos: float = 0.0,
+        gate_open_qpos: float = -0.019,
         gate_spring_stiffness: float = 0.5,
         gate_spring_damping: float = 0.15,
         gate_force_limit: float = 0.8,
@@ -132,6 +142,7 @@ class TakeSafetyHookEnv(BaseEnv):
         self.beam_center_y_noise = abs(float(beam_center_y_noise))
         self.beam_center_z_noise = abs(float(beam_center_z_noise))
         self.beam_yaw_noise = abs(float(beam_yaw_noise))
+        self.beam_pitch = float(beam_pitch)
         hook_min_offset = -self.beam_robot_side_length + self.beam_end_margin
         hook_max_offset = self.beam_far_side_length - self.beam_end_margin
         if hook_min_offset > hook_max_offset:
@@ -161,6 +172,13 @@ class TakeSafetyHookEnv(BaseEnv):
         # Legacy name: this now means the rod centerline Z in the hook frame.
         self.hook_top_local_z = float(hook_top_local_z)
         self.hook_rod_local_z = self.hook_top_local_z
+        self.hook_half_width_x = abs(float(hook_half_width_x))
+        self.hook_half_depth_y = abs(float(hook_half_depth_y))
+        self.shelf_thickness = abs(float(shelf_thickness))
+        self.shelf_height = abs(float(shelf_height))
+        self.shelf_gap = float(shelf_gap)
+        self.shelf_center_z = float(shelf_center_z)
+        self.upper_shelf_center_z = float(upper_shelf_center_z)
         self.gate_closed_qpos = float(gate_closed_qpos)
         self.gate_open_qpos = float(gate_open_qpos)
         self.gate_spring_stiffness = float(gate_spring_stiffness)
@@ -183,7 +201,7 @@ class TakeSafetyHookEnv(BaseEnv):
 
     @property
     def _default_human_render_camera_configs(self):
-        pose = sapien_utils.look_at([-0.3, -0.2, self.beam_center_z+0.05], [0.0, 0.05, 0.2])
+        pose = sapien_utils.look_at([0.12, 0.08, self.beam_center_z+0.15], [0.0, 0.00, 0.0])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1)
 
     def _load_agent(self, options: dict):
@@ -261,6 +279,23 @@ class TakeSafetyHookEnv(BaseEnv):
         )
         self.beam = beam_builder.build_kinematic(name="beam")
 
+        # Cradle shelves: kinematic walls bound to the rod (built at the un-randomized
+        # spawn pose; re-placed rigidly with the hook at every reset).
+        self.shelves = []
+        # At build time the assembly is at yaw 0, so local (lx,ly,lz) -> world
+        # offset (-ly, lx, lz) relative to the hook origin.
+        ox, oy, oz = self._hook_origin_x, self._hook_origin_y, self._hook_origin_z
+        for name, (lx, ly, lz), half_extents in self._shelf_specs():
+            shelf_builder = self.scene.create_actor_builder()
+            shelf_builder.initial_pose = sapien.Pose(p=[ox - ly, oy + lx, oz + lz])
+            shelf_builder.add_box_collision(half_size=half_extents)
+            shelf_builder.add_box_visual(
+                half_size=half_extents,
+                material=sapien.render.RenderMaterial(base_color=[0.85, 0.62, 0.12, 1.0]),
+            )
+            setattr(self, name, shelf_builder.build_kinematic(name=name))
+            self.shelves.append(getattr(self, name))
+
     @property
     def _hook_origin_x(self) -> float:
         return self.beam_center_x
@@ -272,6 +307,35 @@ class TakeSafetyHookEnv(BaseEnv):
     @property
     def _hook_origin_z(self) -> float:
         return self.beam_center_z - self.hook_rod_local_z
+
+    def _shelf_specs(self):
+        """Cradle walls expressed in the hook's local frame.
+
+        Each entry is (name, local_center, half_extents). Walls are bound to the
+        rod: at reset they are placed at ``hook_pose`` offset by ``local_center``
+        (rotated by the hook yaw), so the whole rod+shelves+hook assembly moves
+        as one rigid body. The U is open toward the robot (local +Y), with walls
+        on the left/right (local +/-X) and back (local -Y, the far side).
+        """
+        t = self.shelf_thickness
+        h = self.shelf_height
+        gap = self.shelf_gap
+        hx = self.hook_half_width_x  # hook half-extent along local X (left/right)
+        hy = self.hook_half_depth_y  # hook half-extent along local Y (along rod)
+        zc = self.shelf_center_z
+        uz = self.upper_shelf_center_z
+        side_x = hx + gap + t / 2.0
+        side_ly = hy + gap + t  # left/right walls span the hook depth + overlap
+        back_y = -(hy + gap + t / 2.0)
+        back_lx = hx + gap + t  # back wall spans the hook width + overlap
+        return [
+            # Side walls (U-shape open toward robot)
+            ("shelf_left", (-side_x, 0.0, zc), (t / 2.0, side_ly, h / 2.0)),
+            ("shelf_right", (side_x, 0.0, zc), (t / 2.0, side_ly, h / 2.0)),
+            ("shelf_back", (0.0, back_y, zc), (back_lx, t / 2.0, h / 2.0)),
+            # Top lid
+            ("shelf_top", (0.0, 0.0, uz), (back_lx, side_ly, t / 2.0)),
+        ]
 
     def _reset_robot_retracted_qpos(self, env_idx: torch.Tensor):
         b = len(env_idx)
@@ -334,13 +398,10 @@ class TakeSafetyHookEnv(BaseEnv):
             beam_q[:, 3] = torch.sin(half_yaw)
             self.beam.set_pose(Pose.create_from_pq(beam_p, beam_q))
 
-            # Randomize the hook at different positions along the randomized rod.
-            rod_offset = self.hook_on_beam_center_offset + randomization.uniform(
-                -self.hook_on_beam_y_range,
-                self.hook_on_beam_y_range,
-                size=(b,),
-                device=self.device,
-            )
+            # The hook's position along the rod is fixed (its relative pose to the
+            # rod is固化); only the whole rod+shelves+hook assembly is randomized
+            # via beam_p / beam_yaw above, so the hook always sits flush in the cradle.
+            rod_offset = self.hook_on_beam_center_offset
             cos_yaw = torch.cos(beam_yaw)
             sin_yaw = torch.sin(beam_yaw)
             rod_axis_x = cos_yaw
@@ -372,6 +433,94 @@ class TakeSafetyHookEnv(BaseEnv):
             )
             self.hook.set_pose(Pose.create_from_pq(hook_p, hook_q))
 
+            # Place the cradle walls rigidly with the hook. local (lx,ly,lz) ->
+            # world offset (-sin_yaw*lx - cos_yaw*ly, cos_yaw*lx - sin_yaw*ly, lz).
+            for shelf, (_, (lx, ly, lz), _) in zip(self.shelves, self._shelf_specs()):
+                wx = -sin_yaw * lx - cos_yaw * ly
+                wy = cos_yaw * lx - sin_yaw * ly
+                shelf_p = torch.stack(
+                    [hook_p[:, 0] + wx, hook_p[:, 1] + wy, hook_p[:, 2] + lz],
+                    dim=-1,
+                )
+                shelf.set_pose(Pose.create_from_pq(shelf_p, hook_q))
+
+            # Rotate the entire rod+hook+shelves assembly around the world Y axis
+            # by beam_pitch (default π/2). The beam center is the pivot point.
+            pitch = self.beam_pitch
+            if abs(pitch) > 1e-9:
+                c = math.cos(pitch)
+                s = math.sin(pitch)
+                half = pitch * 0.5
+                c_half = math.cos(half)
+                s_half = math.sin(half)
+                # q_pitch = (c_half, 0, s_half, 0)  in (w, x, y, z) order
+                q_pitch_w = c_half
+                q_pitch_y = s_half
+
+                # --- Beam orientation ---
+                # q_beam' = q_pitch * q_beam  (left-multiply: world-frame rotation)
+                bw, bx, by, bz = beam_q[:, 0], beam_q[:, 1], beam_q[:, 2], beam_q[:, 3]
+                beam_q_new = torch.stack(
+                    [
+                        q_pitch_w * bw - q_pitch_y * by,                # w
+                        q_pitch_w * bx + q_pitch_y * bz,                # x
+                        q_pitch_y * bw + q_pitch_w * by,                # y
+                        q_pitch_w * bz - q_pitch_y * bx,                # z
+                    ],
+                    dim=-1,
+                )
+                self.beam.set_pose(Pose.create_from_pq(beam_p, beam_q_new))
+
+                # --- Hook position (rotate around beam center) ---
+                hook_rel = hook_p - beam_p  # (b, 3)
+                hook_rel_rot = torch.stack(
+                    [
+                        c * hook_rel[:, 0] + s * hook_rel[:, 2],
+                        hook_rel[:, 1],
+                        -s * hook_rel[:, 0] + c * hook_rel[:, 2],
+                    ],
+                    dim=-1,
+                )
+                hook_p_rot = beam_p + hook_rel_rot
+                # --- Hook orientation ---
+                hw, hx, hy, hz = hook_q[:, 0], hook_q[:, 1], hook_q[:, 2], hook_q[:, 3]
+                hook_q_rot = torch.stack(
+                    [
+                        q_pitch_w * hw - q_pitch_y * hy,                # w
+                        q_pitch_w * hx + q_pitch_y * hz,                # x
+                        q_pitch_y * hw + q_pitch_w * hy,                # y
+                        q_pitch_w * hz - q_pitch_y * hx,                # z
+                    ],
+                    dim=-1,
+                )
+                self.hook.set_pose(Pose.create_from_pq(hook_p_rot, hook_q_rot))
+
+                # --- Shelf poses (rotate around beam center) ---
+                for shelf in self.shelves:
+                    sp = shelf.pose.p  # current pos after flat-frame placement
+                    sq = shelf.pose.q
+                    shelf_rel = sp - beam_p
+                    shelf_rel_rot = torch.stack(
+                        [
+                            c * shelf_rel[:, 0] + s * shelf_rel[:, 2],
+                            shelf_rel[:, 1],
+                            -s * shelf_rel[:, 0] + c * shelf_rel[:, 2],
+                        ],
+                        dim=-1,
+                    )
+                    shelf_p_rot = beam_p + shelf_rel_rot
+                    sw, sx, sy, sz = sq[:, 0], sq[:, 1], sq[:, 2], sq[:, 3]
+                    shelf_q_rot = torch.stack(
+                        [
+                            q_pitch_w * sw - q_pitch_y * sy,            # w
+                            q_pitch_w * sx + q_pitch_y * sz,            # x
+                            q_pitch_y * sw + q_pitch_w * sy,            # y
+                            q_pitch_w * sz - q_pitch_y * sx,            # z
+                        ],
+                        dim=-1,
+                    )
+                    shelf.set_pose(Pose.create_from_pq(shelf_p_rot, shelf_q_rot))
+
             qpos0 = torch.full((b, 1), self.gate_closed_qpos, device=self.device)
             self.hook.set_qpos(qpos0)
             self.hook.set_qvel(torch.zeros((b, 1), device=self.device))
@@ -379,21 +528,36 @@ class TakeSafetyHookEnv(BaseEnv):
             self.gate_joint.set_drive_velocity_target(0.0)
 
             self._hook_qpos_prev = qpos0[:, 0].clone()
+            self._max_progress = torch.zeros((b,), device=self.device)
+            self._min_hook_com_z = torch.full((b,), float("inf"), device=self.device)
 
     def evaluate(self):
         gate_qpos = self.gate_joint.qpos
-        # We do a simple proxy for now; later change to beam-hang detection by keypoints.
         gate_angle = gate_qpos[:, 0] if gate_qpos.ndim == 2 else gate_qpos
         open_span = max(self.gate_closed_qpos - self.gate_open_qpos, 1e-6)
-        progress = torch.clamp(
+        cur_progress = torch.clamp(
             (self.gate_closed_qpos - gate_angle) / open_span, 0.0, 1.0
         )
-        success = progress >= torch.tensor(1.2, device=self.device)
+
+        # Hook COM height (world Z).  frame_link has mass=100, so the root-link
+        # world Z is a tight approximation of the full-articulation COM Z.
+        cur_hook_com_z = self.hook.pose.p[:, 2]
+
+        # Track historical best: the gate has a spring that pushes it closed,
+        # and the hook can bounce back up, so success should latch on the
+        # peak opening and the lowest COM Z reached so far this episode.
+        self._max_progress = torch.maximum(self._max_progress, cur_progress)
+        self._min_hook_com_z = torch.minimum(self._min_hook_com_z, cur_hook_com_z)
+
+        gate_open_enough = self._max_progress >= 0.5
+        hook_low_enough = self._min_hook_com_z < 0.03
+        success = gate_open_enough & hook_low_enough
 
         return {
             "success": success,
-            "progress": progress,
+            "progress": self._max_progress,
             "hook_qpos": gate_angle,
+            "hook_com_z": self._min_hook_com_z,
             "beam_pose": self.beam.pose.raw_pose,
         }
 

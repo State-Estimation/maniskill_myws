@@ -8,7 +8,7 @@ uv run python ./third_party/XLeVR/vr_controller_panda_simple.py \
 export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 再
 python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
-  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/demos2/OpenSafeDoor-v27/teleop/trajectory.h5 \
+  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/demos2/TakeSafetyHook-v10/teleop/trajectory.h5 \
   --obs-mode rgb \
   --target-control-mode pd_ee_delta_pose \
   --save-video \
@@ -50,3 +50,7 @@ python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory \
 unset all_proxy
 unset ALL_PROXY
 hf upload Riverdust/Maniskill_myws_space_datasets ./Replayed_traj_data_openSafeDoor2.tar.xz --repo-type=dataset
+
+python scripts/run_maniskill_demo.py mani_skill.trajectory.replay_trajectory  \
+  --traj-path /home/firedust/mimic/maniskill_myws/third_party/XLeVR/demos2/TakeSafetyHook-v10/teleop/trajectory.h5  \
+  --obs-mode rgb   --use-first-env-state --save_traj --save-video
