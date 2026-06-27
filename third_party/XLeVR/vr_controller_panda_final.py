@@ -374,7 +374,7 @@ task_list = ["OpenSafeDoor-v1", "OpenSafeDoor-v2", "StackCube-v2",
 
 @dataclass
 class Args:
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TakeSafetyHook-v1"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "SolarPanelStatic-v2"
     obs_mode: str = "rgb"
     robot_uid: Annotated[str, tyro.conf.arg(aliases=["-r"])] = "panda_wristcam"
     record_dir: str = "demos2"
