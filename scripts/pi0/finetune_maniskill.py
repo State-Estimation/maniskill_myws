@@ -147,7 +147,7 @@ def main() -> None:
         "--config",
         type=str,
         default="pi0_maniskill",
-        help="openpi config name (use pi0_maniskill for ManiSkill datasets)",
+        help="openpi config name (use pi0_maniskill or pi05_maniskill for ManiSkill datasets)",
     )
     p.add_argument("--repo-id", type=str, required=True, help="LeRobot dataset repo_id (local/... or hf_user/...)")
     p.add_argument("--exp-name", type=str, required=True)
