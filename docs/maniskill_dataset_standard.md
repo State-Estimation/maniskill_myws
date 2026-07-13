@@ -77,23 +77,6 @@ python -m mani_skill.trajectory.replay_trajectory \
 > replay 会输出新的 `.h5 + .json`，其中 obs 已对齐到 `rgb` + `pd_joint_pos`。
 > 如果原始轨迹已经是 `pd_joint_pos`，`--target-control-mode pd_joint_pos` 只是显式声明目标格式；如果原始轨迹是 `pd_ee_delta_pose`，ManiSkill 官方 replay 当前不支持直接反向转换到 `pd_joint_pos`，建议重新采集或写专门的 qpos-target 转换脚本。
 
-如果需要采集 PLD Algorithm 1 中的 `πb` 成功 rollout 数据，而不是摇操/专家数据，可以直接连接 OpenPI server 采集标准 ManiSkill `.h5 + .json`：
-
-```bash
-python scripts/pld/collect_base_policy_dataset.py \
-  --env-id OpenSafeDoor-v2 \
-  --control-mode pd_joint_pos \
-  --server ws://127.0.0.1:8000 \
-  --num-successes 50 \
-  --max-attempts 200 \
-  --output-dir dataset/Pi0_rollout_OpenSafeDoor-v2 \
-  --trajectory-name pi0_base_policy
-```
-
-该脚本应使用 `obs_mode=rgb`、`reward_mode=none`、`control_mode=pd_joint_pos`、`robot_uids=panda_wristcam`，只保存成功 episode。若脚本默认值尚未更新，请显式传入 `--control-mode pd_joint_pos`。输出可直接作为 PLD 的 `--offline-h5-dir`，也可以继续按下一节转成 LeRobot dataset。
-
----
-
 ## E) 转换成 LeRobot dataset（统一格式）
 
 ```bash
