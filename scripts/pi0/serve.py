@@ -114,7 +114,10 @@ def main() -> None:
         "--config",
         type=str,
         default="pi0_maniskill",
-        help="openpi config name (e.g. pi0_maniskill/pi05_maniskill/pi0_maniskill_legacy)",
+        help=(
+            "openpi config name (e.g. pi0_maniskill/pi05_maniskill/"
+            "pi05_maniskill_quantile/pi0_maniskill_legacy)"
+        ),
     )
     p.add_argument("--checkpoint", type=str, required=True, help="Checkpoint dir (local path or gs://...)")
     p.add_argument(

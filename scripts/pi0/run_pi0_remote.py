@@ -199,13 +199,20 @@ def main() -> None:
         if args.save_video:
             (out_dir / "videos").mkdir(parents=True, exist_ok=True)
 
-    env = gym.make(
-        args.env_id,
+    env_kwargs = dict(
         obs_mode=args.obs_mode,
         reward_mode=args.reward_mode,
         control_mode=args.control_mode,
         render_mode=args.render_mode,
     )
+    if args.max_steps is not None:
+        # Keep the environment's TimeLimit wrapper aligned with the rollout
+        # cap. Otherwise envs registered with max_episode_steps, such as
+        # OpenSafeDoor-v2 at 500, truncate before this script's loop reaches
+        # a larger --max-steps value.
+        env_kwargs["max_episode_steps"] = args.max_steps
+
+    env = gym.make(args.env_id, **env_kwargs)
     obs, info = env.reset(seed=args.seed)
     max_steps = args.max_steps
     if max_steps is None:
