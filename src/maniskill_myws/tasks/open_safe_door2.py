@@ -95,7 +95,7 @@ class OpenSafeDoor2Env(BaseEnv):
     @property
     def _default_sensor_configs(self):
         # Match the render camera viewpoint so the full safe and handle workspace stay in frame.
-        pose = sapien_utils.look_at([-0.55, -0.5, 0.73], [0.0, 0.0, 0.1])
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
         #pose = sapien_utils.look_at([-0.55, 0.0, 0.45], [0.0, 0.0, 0.15])
 
         return [
@@ -105,7 +105,7 @@ class OpenSafeDoor2Env(BaseEnv):
 
     @property
     def _default_human_render_camera_configs(self):
-        pose = sapien_utils.look_at([-0.55, -0.5, 0.73], [0.0, 0.0, 0.1])
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1)
 
     def _load_agent(self, options: dict):

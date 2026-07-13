@@ -194,7 +194,7 @@ class TakeSafetyHookEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at([-0.55, -0.5, 0.73], [0.0, 0.0, 0.1])
+        pose = sapien_utils.look_at([-0.7, -0.6, 0.9], [0.0, 0.0, 0.2])
         return [
             CameraConfig("base_camera", pose=pose, width=128, height=128, fov=1)
         ]
