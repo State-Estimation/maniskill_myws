@@ -29,7 +29,9 @@ class TurnGlobeValveEnv(BaseEnv):
         its XY and yaw are randomized each reset
 
     Success:
-      - The handwheel rotates by more than 180 degrees (pi rad), using an unwrapped cumulative angle
+      - The handwheel rotates counter-clockwise by the target angle, using an
+        unwrapped cumulative angle. Positive handwheel joint motion follows the
+        URDF +Z axis and is treated as counter-clockwise.
     """
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
@@ -61,7 +63,11 @@ class TurnGlobeValveEnv(BaseEnv):
 
     @property
     def _default_sim_config(self):
-        return SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
+        return SimConfig(
+            sim_freq=200,
+            control_freq=20,
+            scene_config=SceneConfig(gravity=[0, 0, -0.00098]),
+        )
 
     @property
     def _default_sensor_configs(self):
@@ -99,7 +105,8 @@ class TurnGlobeValveEnv(BaseEnv):
             actor_builders = parsed["actor_builders"]
             if len(articulation_builders) != 1 or actor_builders:
                 raise RuntimeError(
-                    "Expected globe valve URDF to contain exactly one articulation and no loose actors."
+                    "Expected globe valve URDF to contain exactly one articulation "
+                    "and no loose actors."
                 )
             valve_builder = articulation_builders[0]
             valve_builder.set_scene_idxs(torch.arange(self.num_envs, dtype=torch.int32))
@@ -160,10 +167,17 @@ class TurnGlobeValveEnv(BaseEnv):
         self._handwheel_qpos_prev = qpos
 
         valve_rotation = self._handwheel_cumulative
-        success = torch.abs(valve_rotation) > self.success_threshold
+        target_rotation = torch.as_tensor(
+            self.success_threshold,
+            dtype=valve_rotation.dtype,
+            device=valve_rotation.device,
+        )
+        success = valve_rotation >= target_rotation
         return {
             "success": success,
             "valve_rotation": valve_rotation,
+            "target_valve_rotation": target_rotation.expand_as(valve_rotation),
+            "valve_rotation_error": target_rotation - valve_rotation,
             "handwheel_qpos": qpos,
         }
 

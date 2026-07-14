@@ -82,6 +82,7 @@ git submodule update --init --recursive
 更详细说明见：
 - `docs/openpi_integration.md`
 - `docs/maniskill_dataset_standard.md`
+- `docs/rlt_post_training.md`
 
 ### 训练端环境（openpi uv 环境）
 ```bash
@@ -142,5 +143,7 @@ python scripts/pi0/run_pi0_remote_multi_seed.py \
 - `.h5 -> LeRobot`：`scripts/convert_traj_to_lerobot.py`
 - 数据验证：`scripts/pi0/validate_lerobot_dataset.py`
 - 一键微调：`scripts/pi0/finetune_maniskill.py`
+- RLT 后训练：`scripts/rlt/train_chunk_rlt_online.py`
+- RLT 评测：`scripts/rlt/eval_chunk_rlt.py`
 
 > 这些脚本的完整参数与示例见 `docs/openpi_integration.md`。
