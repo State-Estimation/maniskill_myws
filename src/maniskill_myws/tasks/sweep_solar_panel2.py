@@ -194,8 +194,11 @@ class SolarPanelStaticEnv2(BaseEnv):
                 q=list(self.PANEL_BASE_Q),
             )
             panel_builder.initial_pose = panel_pose
-            self.panel = panel_builder.build_static(name="solar_panel")
-            self.panel.set_pose(panel_pose)
+            # The panel is fixed during an episode, but its pose is randomized
+            # in _initialize_episode. GPU simulation does not allow changing a
+            # static actor's pose after the scene has been loaded, whereas a
+            # kinematic actor remains immovable by contacts and can be reset.
+            self.panel = panel_builder.build_kinematic(name="solar_panel")
 
             # =========================
             # 刷子：通过 URDF 导入
