@@ -16,6 +16,13 @@ class BasePolicy:
     def planned_chunk(self) -> np.ndarray | None:
         return None
 
+    def plan_window(self, obs: dict, *, window_steps: int) -> np.ndarray:
+        """Plan one fresh open-loop rollout window from the current observation."""
+        if window_steps <= 0:
+            raise ValueError("window_steps must be positive")
+        actions = [self.act(obs) for _ in range(window_steps)]
+        return np.stack(actions, axis=0).astype(np.float32, copy=False)
+
 
 @dataclass
 class ZeroBasePolicy(BasePolicy):
@@ -34,6 +41,12 @@ class ZeroBasePolicy(BasePolicy):
             return None
         return self._last_action[None, :]
 
+    def plan_window(self, obs: dict, *, window_steps: int) -> np.ndarray:
+        if window_steps <= 0:
+            raise ValueError("window_steps must be positive")
+        self._last_action = np.zeros((self.action_dim,), dtype=np.float32)
+        return np.repeat(self._last_action[None, :], window_steps, axis=0)
+
 
 @dataclass
 class RandomBasePolicy(BasePolicy):
@@ -51,6 +64,16 @@ class RandomBasePolicy(BasePolicy):
         if self._last_action is None:
             return None
         return self._last_action[None, :]
+
+    def plan_window(self, obs: dict, *, window_steps: int) -> np.ndarray:
+        if window_steps <= 0:
+            raise ValueError("window_steps must be positive")
+        actions = [
+            np.asarray(self.action_space.sample(), dtype=np.float32).reshape(-1)
+            for _ in range(window_steps)
+        ]
+        self._last_action = actions[-1]
+        return np.stack(actions, axis=0)
 
 
 class RemoteOpenPIBasePolicy(BasePolicy):
@@ -86,6 +109,23 @@ class RemoteOpenPIBasePolicy(BasePolicy):
 
     def planned_chunk(self) -> np.ndarray | None:
         return self.policy.planned_chunk(include_current=True)
+
+    def plan_window(self, obs: dict, *, window_steps: int) -> np.ndarray:
+        if window_steps <= 0:
+            raise ValueError("window_steps must be positive")
+        # Discard any stale tail produced from an older observation and request
+        # exactly one fresh OpenPI inference at this rollout-window boundary.
+        self.policy.reset()
+        self.policy.act(obs)
+        planned = self.policy.planned_chunk(include_current=True)
+        if planned is None:
+            raise RuntimeError("Remote OpenPI policy returned no action chunk")
+        if planned.shape[0] < window_steps:
+            raise ValueError(
+                f"OpenPI action chunk has {planned.shape[0]} steps, but rollout window "
+                f"requires {window_steps}. Reduce --rollout-window-steps."
+            )
+        return np.asarray(planned[:window_steps], dtype=np.float32)
 
 
 def make_base_policy(
