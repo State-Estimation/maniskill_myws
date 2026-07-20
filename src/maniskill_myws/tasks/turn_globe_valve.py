@@ -31,6 +31,9 @@ class TurnGlobeValveEnv(BaseEnv):
     Success:
       - The handwheel rotates counterclockwise by more than 180 degrees (pi rad),
         using an unwrapped cumulative angle. Clockwise rotation never succeeds.
+      - Both gripper fingers must still clamp the handwheel's outer rim. A clamp
+        in either the front or rear gripper gap counts; pushing the hub, spokes,
+        stem, or rim with only one finger does not count.
     """
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
@@ -52,6 +55,7 @@ class TurnGlobeValveEnv(BaseEnv):
         success_threshold: float = np.pi,
         handwheel_friction: float = 0.6,
         handwheel_damping: float = 5.0,
+        rim_grasp_min_force: float = 0.5,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -61,6 +65,9 @@ class TurnGlobeValveEnv(BaseEnv):
         self.success_threshold = float(success_threshold)
         self.handwheel_friction = float(handwheel_friction)
         self.handwheel_damping = float(handwheel_damping)
+        self.rim_grasp_min_force = float(rim_grasp_min_force)
+        if self.rim_grasp_min_force < 0.0:
+            raise ValueError("rim_grasp_min_force must be non-negative")
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
@@ -110,6 +117,7 @@ class TurnGlobeValveEnv(BaseEnv):
             valve_builder.initial_pose = sapien.Pose(p=[0.0, 0.0, 1e-3])
             self.valve: Articulation = valve_builder.build()
         self.handwheel_joint = self.valve.active_joints_map["handwheel_joint"]
+        self.handwheel_rim_link = self.valve.links_map["handwheel_rim"]
 
         self._handwheel_qpos_prev = torch.zeros(self.num_envs, device=self.device)
         self._handwheel_cumulative = torch.zeros(self.num_envs, device=self.device)
@@ -176,10 +184,36 @@ class TurnGlobeValveEnv(BaseEnv):
         clockwise_rotation = torch.clamp(
             -signed_counterclockwise_rotation, min=0.0
         )
-        success = signed_counterclockwise_rotation > self.success_threshold
+        angle_reached = signed_counterclockwise_rotation > self.success_threshold
+        left_rim_force = torch.linalg.norm(
+            self.scene.get_pairwise_contact_forces(
+                self.agent.finger1_link, self.handwheel_rim_link
+            ),
+            dim=1,
+        )
+        right_rim_force = torch.linalg.norm(
+            self.scene.get_pairwise_contact_forces(
+                self.agent.finger2_link, self.handwheel_rim_link
+            ),
+            dim=1,
+        )
+        # Do not use Panda.is_grasping here. Its contact-normal angle test is
+        # tuned for the front finger pads and rejects valid clamps in the rear
+        # gripper gap. Since the rim has its own collision link, simultaneous
+        # left/right contact is sufficient and still excludes one-finger pushes
+        # and all contact with the hub, spokes, or stem.
+        outer_rim_grasp = torch.logical_and(
+            left_rim_force >= self.rim_grasp_min_force,
+            right_rim_force >= self.rim_grasp_min_force,
+        )
+        success = torch.logical_and(angle_reached, outer_rim_grasp)
         wrong_direction = clockwise_rotation > self.success_threshold
         return {
             "success": success,
+            "angle_reached": angle_reached,
+            "outer_rim_grasp": outer_rim_grasp,
+            "left_rim_contact_force": left_rim_force,
+            "right_rim_contact_force": right_rim_force,
             "valve_rotation": valve_rotation,
             "counterclockwise_rotation": counterclockwise_rotation,
             "clockwise_rotation": clockwise_rotation,
@@ -190,6 +224,10 @@ class TurnGlobeValveEnv(BaseEnv):
     def _get_obs_extra(self, info: dict):
         obs = dict(
             tcp_pose=self.agent.tcp.pose.raw_pose,
+            angle_reached=info.get("angle_reached"),
+            outer_rim_grasp=info.get("outer_rim_grasp"),
+            left_rim_contact_force=info.get("left_rim_contact_force"),
+            right_rim_contact_force=info.get("right_rim_contact_force"),
             valve_rotation=info.get("valve_rotation", self._handwheel_cumulative),
             counterclockwise_rotation=info.get("counterclockwise_rotation"),
             clockwise_rotation=info.get("clockwise_rotation"),
