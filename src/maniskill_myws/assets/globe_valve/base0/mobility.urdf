@@ -93,107 +93,6 @@
 			</geometry>
 		</collision>
 		
-		<!-- Outer rim (完整闭合圆环) - 使用mesh文件 -->
-		<visual name="handwheel_ring">
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_ring.obj"/>
-			</geometry>
-			<material name="rim_material">
-				<color rgba="0.8 0.2 0.2 1.0"/>
-			</material>
-		</visual>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_0.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_1.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_2.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_3.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_4.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_5.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_6.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_7.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_8.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_9.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_10.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_11.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_12.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_13.glb"/>
-			</geometry>
-		</collision>
-		<collision>
-			<origin xyz="0 0 0" rpy="0 0 0"/>
-			<geometry>
-				<mesh filename="meshes/handwheel_part_14.glb"/>
-			</geometry>
-		</collision>
-		
 		<!-- Three spokes evenly distributed at 120 deg intervals -->
 		<!-- Extend from hub edge (r=0.015) to ring inner edge (r=0.09) -->
 		<!-- Spoke length = 0.09 - 0.015 = 0.075m, center position = (0.015+0.09)/2 = 0.0525m -->
@@ -265,6 +164,41 @@
 			</geometry>
 		</collision>
 	</link>
+
+	<!-- Outer rim is a separate fixed child link so contact queries can
+	     distinguish a true rim grasp from pushes on the hub or spokes. -->
+	<link name="handwheel_rim">
+		<visual name="handwheel_ring">
+			<origin xyz="0 0 0" rpy="0 0 0"/>
+			<geometry>
+				<mesh filename="meshes/handwheel_ring.obj"/>
+			</geometry>
+			<material name="rim_material">
+				<color rgba="0.8 0.2 0.2 1.0"/>
+			</material>
+		</visual>
+		<collision><geometry><mesh filename="meshes/handwheel_part_0.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_1.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_2.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_3.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_4.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_5.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_6.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_7.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_8.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_9.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_10.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_11.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_12.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_13.glb"/></geometry></collision>
+		<collision><geometry><mesh filename="meshes/handwheel_part_14.glb"/></geometry></collision>
+	</link>
+
+	<joint name="handwheel_rim_joint" type="fixed">
+		<origin xyz="0 0 0" rpy="0 0 0"/>
+		<parent link="handwheel"/>
+		<child link="handwheel_rim"/>
+	</joint>
 	
 	<!-- Joint: Handwheel rotation (continuous) -->
 	<joint name="handwheel_joint" type="continuous">
@@ -283,4 +217,3 @@
 		<child link="valve_body"/>
 	</joint>
 </robot>
-
