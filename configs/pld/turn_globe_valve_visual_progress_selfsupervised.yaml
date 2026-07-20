@@ -4,23 +4,25 @@ env:
   CUDA_VISIBLE_DEVICES: "1"
 
 args:
-  env-id: SolarPanelStatic-v2
+  env-id: TurnGlobeValve-v1
   control-mode: pd_joint_pos
-  offline-h5-dir: dataset/Pi0_rollout_SolarPanelStatic_pd_joint_pos
+  offline-h5-dir: dataset/Pi0_rollout_TurnGlobeValve-v1_pd_joint_pos
   image-keys:
     - sensor_data/base_camera/rgb
     - sensor_data/hand_camera/rgb
   image-size: 96
-  context-frames: 3
-  context-stride: 2
-  sequence-points: 8
+  # Valve rotation is long and visually periodic. A wider causal window and
+  # more full-trajectory points help expose rotation direction and repetition.
+  context-frames: 5
+  context-stride: 4
+  sequence-points: 12
   validation-fraction: 0.1
   train-samples-per-epoch: 50000
-  validation-samples: 64
+  validation-samples: 128
 
   device: cuda:0
   seed: 0
-  updates: 3000
+  updates: 5000
   batch-size: 4
   num-workers: 8
   ensemble-size: 3
@@ -48,9 +50,9 @@ args:
   success-weight: 1.0
   preference-weight: 0.5
 
-  output-dir: outputs/pld/SolarPanelStatic-v2/visual_progress_implicit
+  output-dir: outputs/pld/TurnGlobeValve-v1/visual_progress_implicit
   checkpoint-name: visual_progress_best.pt
   wandb-enabled: true
   wandb-project: maniskill-pld
-  wandb-name: solar_visual_progress_implicit
+  wandb-name: valve_visual_progress_implicit
   wandb-mode: disabled

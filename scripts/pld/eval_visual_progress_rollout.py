@@ -293,6 +293,12 @@ def main() -> None:
     if args.max_steps is not None:
         env_kwargs["max_episode_steps"] = args.max_steps
     apply_env_device_kwargs(env_kwargs, args.env_device)
+    if render_mode == "human" and args.env_device is None:
+        # Keep contact dynamics on CPU (required to reproduce the hook policy's
+        # rollout distribution), but use the display-connected CUDA device for
+        # the interactive SAPIEN viewer. The CPU renderer cannot create a window.
+        env_kwargs.setdefault("sim_backend", "physx_cpu")
+        env_kwargs.setdefault("render_backend", "sapien_cuda:0")
     env = gym.make(args.env_id, **env_kwargs)
     max_steps = args.max_steps or getattr(env.unwrapped, "max_episode_steps", None)
     if max_steps is None and getattr(env, "spec", None) is not None:

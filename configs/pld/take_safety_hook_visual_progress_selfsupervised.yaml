@@ -1,0 +1,67 @@
+script: scripts/pld/train_visual_progress_selfsupervised.py
+
+env:
+  CUDA_VISIBLE_DEVICES: "1"
+
+args:
+  env-id: TakeSafetyHook-v1
+  control-mode: pd_joint_pos
+  offline-h5-dir: dataset/Pi0_rollout_TakeSafetyHook-v1_pd_joint_pos
+  image-keys:
+    - sensor_data/base_camera/rgb
+    - sensor_data/hand_camera/rgb
+  image-size: 96
+  # Rollouts use the policy's validated 600-step horizon: most successes finish
+  # near 180--300 steps, while difficult failures run to 600. Eight global
+  # points cover both, and a four-frame / stride-two causal clip captures the
+  # fast grasp/removal motion without letting elapsed time dominate prediction.
+  context-frames: 4
+  context-stride: 2
+  sequence-points: 8
+  # At roughly 50% base-policy success, collecting 50 successes should produce
+  # about 100 total episodes. Hold out ~10 successes and ~10 failures by the
+  # dataset's stratified episode-level split.
+  validation-fraction: 0.2
+  train-samples-per-epoch: 50000
+  validation-samples: 512
+
+  device: cuda:0
+  seed: 0
+  # Door overfit after update 1000 on 67 episodes. This task should have a more
+  # balanced ~100-episode dataset, but 3000 updates is still unnecessarily long.
+  updates: 2000
+  batch-size: 4
+  num-workers: 8
+  ensemble-size: 3
+  lr: 0.0003
+  weight-decay: 0.0001
+  visual-latent-dim: 256
+  embedding-dim: 128
+  hidden-dim: 256
+  grad-clip-norm: 1.0
+  augmentation-strength: 0.1
+  amp: true
+  log-every: 25
+  eval-every: 250
+  max-validation-batches: 0
+
+  cycle-temperature: 0.1
+  order-margin: 0.02
+  preference-margin: 0.2
+  cycle-weight: 1.0
+  alignment-weight: 0.5
+  endpoint-weight: 2.0
+  order-weight: 1.0
+  latent-smoothness-weight: 0.05
+  smoothness-weight: 0.1
+  # Outcome labels are useful for failure gating, but progress/order remain the
+  # primary objective. Lower weights reduce trajectory-identity overfitting.
+  success-weight: 0.5
+  preference-weight: 0.25
+
+  output-dir: outputs/pld/TakeSafetyHook-v1/visual_progress_implicit
+  checkpoint-name: visual_progress_best.pt
+  wandb-enabled: true
+  wandb-project: maniskill-pld
+  wandb-name: hook_visual_progress_implicit
+  wandb-mode: offline

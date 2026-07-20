@@ -4,23 +4,25 @@ env:
   CUDA_VISIBLE_DEVICES: "1"
 
 args:
-  env-id: SolarPanelStatic-v2
+  env-id: OpenSafeDoor-v2
   control-mode: pd_joint_pos
-  offline-h5-dir: dataset/Pi0_rollout_SolarPanelStatic_pd_joint_pos
+  offline-h5-dir: dataset/Pi0_rollout_OpenSafeDoor-v2_pd_joint_pos
   image-keys:
     - sensor_data/base_camera/rgb
     - sensor_data/hand_camera/rgb
   image-size: 96
-  context-frames: 3
-  context-stride: 2
-  sequence-points: 8
+  # Door opening has two visually distinct interactions (button then handle),
+  # so use a slightly longer causal clip and denser full-trajectory sampling.
+  context-frames: 4
+  context-stride: 3
+  sequence-points: 10
   validation-fraction: 0.1
   train-samples-per-epoch: 50000
-  validation-samples: 64
+  validation-samples: 128
 
   device: cuda:0
   seed: 0
-  updates: 3000
+  updates: 4000
   batch-size: 4
   num-workers: 8
   ensemble-size: 3
@@ -48,9 +50,9 @@ args:
   success-weight: 1.0
   preference-weight: 0.5
 
-  output-dir: outputs/pld/SolarPanelStatic-v2/visual_progress_implicit
+  output-dir: outputs/pld/OpenSafeDoor-v2/visual_progress_implicit
   checkpoint-name: visual_progress_best.pt
   wandb-enabled: true
   wandb-project: maniskill-pld
-  wandb-name: solar_visual_progress_implicit
+  wandb-name: door_visual_progress_implicit
   wandb-mode: disabled
