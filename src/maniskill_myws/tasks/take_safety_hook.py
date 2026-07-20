@@ -256,8 +256,6 @@ class TakeSafetyHookEnv(BaseEnv):
             self.gate_spring_damping,
             self.gate_force_limit,
         )
-        self.gate_joint.set_drive_target(self.gate_closed_qpos)
-        self.gate_joint.set_drive_velocity_target(0.0)
         self.gate_joint.set_friction(self.gate_friction)
 
         # Beam origin is the manipulation reference point; the cylinder is shorter

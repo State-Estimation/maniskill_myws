@@ -64,8 +64,11 @@ class OpenSafeDoor2Env(BaseEnv):
         safe_spawn_center_y: float = -0.65,
         safe_spawn_half_size_x: float = 0.03,
         safe_spawn_half_size_y: float = 0.02,
-        # Keep yaw noise smaller so the door is less likely to swing into the robot/table.
+        # Positive yaw is counter-clockwise when viewed from above.  With the
+        # current safe/robot placement this turns the handle toward the robot,
+        # so keep that side tighter than the clockwise (away) side.
         safe_yaw_noise: float = np.pi / 20,
+        safe_yaw_ccw_noise: float = np.pi / 40,
         door_open_threshold: float = np.pi / 6,
         door_joint_damping: float = 0.05,
         button_joint_friction: float = 0.8,
@@ -78,7 +81,14 @@ class OpenSafeDoor2Env(BaseEnv):
         self.safe_spawn_center_y = float(safe_spawn_center_y)
         self.safe_spawn_half_size_x = float(safe_spawn_half_size_x)
         self.safe_spawn_half_size_y = float(safe_spawn_half_size_y)
-        self.safe_yaw_noise = safe_yaw_noise
+        self.safe_yaw_noise = float(safe_yaw_noise)
+        self.safe_yaw_ccw_noise = float(safe_yaw_ccw_noise)
+        if self.safe_yaw_noise < 0:
+            raise ValueError("safe_yaw_noise must be non-negative")
+        if not 0 <= self.safe_yaw_ccw_noise <= self.safe_yaw_noise:
+            raise ValueError(
+                "safe_yaw_ccw_noise must be between 0 and safe_yaw_noise"
+            )
         self.door_open_threshold = float(door_open_threshold)
         self.door_joint_damping = float(door_joint_damping)
         self.button_joint_friction = float(button_joint_friction)
@@ -210,7 +220,7 @@ class OpenSafeDoor2Env(BaseEnv):
                 device=self.device,
                 lock_x=True,
                 lock_y=True,
-                bounds=(-self.safe_yaw_noise, self.safe_yaw_noise),
+                bounds=(-self.safe_yaw_noise, self.safe_yaw_ccw_noise),
             )
             self.safe.set_pose(Pose.create_from_pq(p, q))
 
@@ -226,7 +236,11 @@ class OpenSafeDoor2Env(BaseEnv):
         button_pressed = button_qpos <= 0.035
         past_startup_grace = self.elapsed_steps >= self.min_success_steps
 
-        self._door_released = self._door_released | (button_pressed & past_startup_grace)
+        # Latch the physical button event immediately.  The startup grace period
+        # only delays declaring success; it must not erase a valid early press.
+        # Otherwise a policy that presses before min_success_steps and then opens
+        # the door can never succeed.
+        self._door_released = self._door_released | button_pressed
 
         door_qpos = self.door_joint.qpos
 

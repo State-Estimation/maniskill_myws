@@ -29,13 +29,17 @@ class TurnGlobeValveEnv(BaseEnv):
         its XY and yaw are randomized each reset
 
     Success:
-      - The handwheel rotates by more than 180 degrees (pi rad), using an unwrapped cumulative angle
+      - The handwheel rotates counterclockwise by more than 180 degrees (pi rad),
+        using an unwrapped cumulative angle. Clockwise rotation never succeeds.
     """
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
     SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
     agent: Panda
     DEFAULT_TASK_PROMPT = TASK_PROMPTS["TurnGlobeValve-v1"]
+    # The URDF handwheel axis is local +Z. Both task cameras observe the wheel
+    # from the +Z side, so positive right-hand-rule rotation appears CCW.
+    COUNTERCLOCKWISE_SIGN = 1.0
 
     def __init__(
         self,
@@ -113,7 +117,6 @@ class TurnGlobeValveEnv(BaseEnv):
         # Add passive joint friction so the handwheel does not coast unrealistically.
         self.handwheel_joint.set_friction(self.handwheel_friction)
         self.handwheel_joint.set_drive_properties(0.0, self.handwheel_damping)
-        self.handwheel_joint.set_drive_velocity_target(0.0)
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         with torch.device(self.device):
@@ -147,6 +150,12 @@ class TurnGlobeValveEnv(BaseEnv):
             )
             self.valve.set_qpos(qpos0)
             self.valve.set_qvel(torch.zeros_like(qpos0))
+            # Drive target buffers do not exist yet while _load_scene runs in
+            # GPU simulation. Set the zero-velocity target after GPU
+            # initialization, during the reset covered by the active env mask.
+            self.handwheel_joint.set_drive_velocity_target(
+                torch.zeros((b,), dtype=torch.float32, device=self.device)
+            )
 
             self._handwheel_qpos_prev[env_idx] = qpos0[:, 0]
             self._handwheel_cumulative[env_idx] = 0.0
@@ -160,10 +169,21 @@ class TurnGlobeValveEnv(BaseEnv):
         self._handwheel_qpos_prev = qpos
 
         valve_rotation = self._handwheel_cumulative
-        success = torch.abs(valve_rotation) > self.success_threshold
+        signed_counterclockwise_rotation = self.COUNTERCLOCKWISE_SIGN * valve_rotation
+        counterclockwise_rotation = torch.clamp(
+            signed_counterclockwise_rotation, min=0.0
+        )
+        clockwise_rotation = torch.clamp(
+            -signed_counterclockwise_rotation, min=0.0
+        )
+        success = signed_counterclockwise_rotation > self.success_threshold
+        wrong_direction = clockwise_rotation > self.success_threshold
         return {
             "success": success,
             "valve_rotation": valve_rotation,
+            "counterclockwise_rotation": counterclockwise_rotation,
+            "clockwise_rotation": clockwise_rotation,
+            "wrong_direction": wrong_direction,
             "handwheel_qpos": qpos,
         }
 
@@ -171,6 +191,9 @@ class TurnGlobeValveEnv(BaseEnv):
         obs = dict(
             tcp_pose=self.agent.tcp.pose.raw_pose,
             valve_rotation=info.get("valve_rotation", self._handwheel_cumulative),
+            counterclockwise_rotation=info.get("counterclockwise_rotation"),
+            clockwise_rotation=info.get("clockwise_rotation"),
+            wrong_direction=info.get("wrong_direction"),
             handwheel_qpos=info.get("handwheel_qpos", self.handwheel_joint.qpos),
         )
         if "state" in self.obs_mode:
