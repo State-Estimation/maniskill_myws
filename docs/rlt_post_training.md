@@ -22,7 +22,9 @@ Core code lives in `src/maniskill_myws/rlt`:
 
 - `networks.py`: chunk actor, twin critic, optional ResNetV1-10 RGB encoder
 - `replay.py`: fixed-length chunk replay buffer
+- `dataset.py`: ManiSkill rollout H5 to Base-policy replay chunks
 - `trainer.py`: TD target, actor/critic updates, pd_joint_pos regularizers
+- `hil.py`: keyboard-controlled human-in-the-loop Base/RLT gate
 - `state.py`: ManiSkill state/RGB adapters
 - `policies.py`: zero/random/OpenPI reference chunk providers
 
@@ -89,6 +91,82 @@ For visual RLT, add:
   --use-visual-rlt \
   --rlt-image-size 128
 ```
+
+### Prefill warmup from existing rollouts
+
+Existing ManiSkill RecordEpisode `.h5` rollouts can replace live Base-policy
+warmup collection:
+
+```bash
+python scripts/rlt/train_chunk_rlt_online.py \
+  --env-id TurnGlobeValve-v1 \
+  --reward-mode sparse \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --chunk-len 50 \
+  --warmup-transitions 600 \
+  --warmup-dataset \
+    dataset/Pi0_rollout_TurnGlobeValve-v1_pd_joint_pos/pi0_base_policy.h5 \
+  --offline-updates 1000 \
+  --output-dir outputs/rlt/TurnGlobeValve-v1_prefilled
+```
+
+The loader uses contiguous rollout actions as both `ref_chunk` and
+`action_chunk`, labels every loaded step as `BASE`, and preserves rewards,
+termination, success, optional RGB observations, and episode boundaries. It
+loads at most `--warmup-transitions` chunks by default; override that limit with
+`--warmup-dataset-transitions`. Repeat `--warmup-dataset` to load more than one
+compatible H5 file.
+
+The sibling JSON metadata is checked against `--env-id`, `--control-mode`, and
+`--reward-mode`. Use a matching reward mode because mixing sparse and dense
+critic targets is normally invalid. `--allow-warmup-metadata-mismatch` is
+available only for intentionally transformed datasets. Nonstandard H5 fields
+can be selected with `--warmup-action-key` and `--warmup-reward-key`.
+
+`--offline-updates` trains from the prefilled buffer before the first online
+step. If the H5 contains fewer than `--warmup-transitions` chunks, online Base
+rollouts continue filling the remainder and HIL keeps RLT locked until the
+threshold is reached.
+
+### Human-in-the-loop intervention timing
+
+Add `--hil-keyboard --render-mode human` when a person should decide exactly
+when RLT is allowed to intervene:
+
+```bash
+python scripts/rlt/train_chunk_rlt_online.py \
+  --env-id TurnGlobeValve-v1 \
+  --base-policy remote_openpi \
+  --server ws://127.0.0.1:8000 \
+  --chunk-len 50 \
+  --hil-keyboard \
+  --hil-mode hold \
+  --render-mode human \
+  --real-time \
+  --output-dir outputs/rlt/TurnGlobeValve-v1_hil
+```
+
+Click the SAPIEN viewer once so it has keyboard focus. In the default `hold`
+mode, Base/OpenPI controls the robot unless `R` is held; releasing `R` returns
+control to Base immediately. Holding `B` forces Base even if `R` is also held.
+Press `Q` to stop safely and save the checkpoint.
+
+For latched control, use `--hil-mode latch`: press `R` once to enable RLT and
+press `B` to return to Base. Keys can be changed with `--hil-rlt-key`,
+`--hil-base-key`, and `--hil-quit-key`.
+
+Keyboard HIL enables real-time pacing by default, using the environment's
+`control_freq` (20 Hz for the four custom tasks). `--real-time` can also enable
+it explicitly, while `--no-real-time` disables it. Real-time pacing is needed
+for reliable human input because an unthrottled simulator can finish an episode
+before a key can be held or tapped.
+
+The gate is polled before every low-level environment step, so a single chunk
+can contain both Base and RLT actions. Replay stores the per-step source and
+marks the aggregate transition as `MIXED`. RLT remains locked until
+`--warmup-transitions` Base chunks have been collected or prefilled; this
+argument counts chunk transitions, not individual environment steps.
 
 ## Evaluation
 
