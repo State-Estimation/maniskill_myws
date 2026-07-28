@@ -26,6 +26,7 @@ runtime = [
   "PyYAML>=6",
   "pin-pink",
   "pytorch_kinematics_ms",
+  "wandb>=0.26",
 ]
 dev = [
   "pytest>=7.4",

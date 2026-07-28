@@ -10,6 +10,122 @@ import numpy as np
 from .obs_to_openpi import ObsAdapter, _to_uint8_hwc
 
 
+INFERENCE_SEED_KEY = "__maniskill_inference_seed__"
+INFERENCE_SEED_CAPABILITY = "maniskill_deterministic_inference_seed_v1"
+FROZEN_LATENT_PROTOCOL = "maniskill_frozen_pi0_action_suffix_mean_v1"
+FROZEN_LATENT_KEY = "frozen_pi0_latent"
+FROZEN_LATENT_DIM = 1024
+FROZEN_TEMPORAL_LATENT_PROTOCOL = (
+    "maniskill_frozen_pi0_action_suffix_temporal_bins_v1"
+)
+FROZEN_TEMPORAL_LATENT_KEY = "frozen_pi0_temporal_latent"
+FROZEN_TEMPORAL_LATENT_BINS = 5
+FROZEN_TEMPORAL_LATENT_ACTION_HORIZON = 50
+FROZEN_TEMPORAL_LATENT_BIN_WIDTH = 10
+
+
+def _validate_frozen_latent_metadata(metadata: dict[str, Any]) -> None:
+    expected = {
+        "frozen_latent_protocol": FROZEN_LATENT_PROTOCOL,
+        "frozen_latent_key": FROZEN_LATENT_KEY,
+        "frozen_latent_shape": [FROZEN_LATENT_DIM],
+        "frozen_latent_dtype": "float32",
+    }
+    mismatches = {
+        key: (metadata.get(key), value)
+        for key, value in expected.items()
+        if metadata.get(key) != value
+    }
+    if mismatches:
+        raise RuntimeError(
+            "The OpenPI server does not expose the required frozen Pi0 "
+            f"latent protocol: {mismatches}. Restart scripts/pi0/serve.py "
+            "with --frozen-action-latent."
+        )
+
+
+def _validate_frozen_latent(value: Any) -> np.ndarray:
+    latent = np.asarray(value)
+    if latent.shape != (FROZEN_LATENT_DIM,):
+        raise ValueError(
+            f"OpenPI frozen latent shape {latent.shape} != {(FROZEN_LATENT_DIM,)}"
+        )
+    if latent.dtype != np.dtype(np.float32):
+        raise TypeError(
+            f"OpenPI frozen latent must be float32, got {latent.dtype}"
+        )
+    if not np.all(np.isfinite(latent)):
+        raise ValueError("OpenPI frozen latent contains NaN or Inf")
+    return latent.copy()
+
+
+def _validate_frozen_temporal_latent_metadata(metadata: dict[str, Any]) -> None:
+    expected = {
+        "frozen_temporal_latent_protocol": FROZEN_TEMPORAL_LATENT_PROTOCOL,
+        "frozen_temporal_latent_key": FROZEN_TEMPORAL_LATENT_KEY,
+        "frozen_temporal_latent_shape": [
+            FROZEN_TEMPORAL_LATENT_BINS,
+            FROZEN_LATENT_DIM,
+        ],
+        "frozen_temporal_latent_dtype": "float32",
+        "frozen_temporal_latent_source": (
+            "pi0_final_denoise_action_suffix_tokens"
+        ),
+        "frozen_temporal_latent_pooling": "ordered_equal_contiguous_bins",
+        "frozen_temporal_latent_action_horizon": (
+            FROZEN_TEMPORAL_LATENT_ACTION_HORIZON
+        ),
+        "frozen_temporal_latent_bin_width": FROZEN_TEMPORAL_LATENT_BIN_WIDTH,
+        "frozen_temporal_latent_parent_protocol": FROZEN_LATENT_PROTOCOL,
+        "frozen_temporal_latent_parent_key": FROZEN_LATENT_KEY,
+    }
+    mismatches = {
+        key: (metadata.get(key), value)
+        for key, value in expected.items()
+        if metadata.get(key) != value
+    }
+    if mismatches:
+        raise RuntimeError(
+            "The OpenPI server does not expose the required frozen Pi0 temporal "
+            f"latent protocol: {mismatches}. Restart scripts/pi0/serve.py with "
+            "--frozen-action-temporal-latent."
+        )
+
+
+def _validate_frozen_temporal_latent(value: Any) -> np.ndarray:
+    latent = np.asarray(value)
+    expected_shape = (FROZEN_TEMPORAL_LATENT_BINS, FROZEN_LATENT_DIM)
+    if latent.shape != expected_shape:
+        raise ValueError(
+            f"OpenPI frozen temporal latent shape {latent.shape} != {expected_shape}"
+        )
+    if latent.dtype != np.dtype(np.float32):
+        raise TypeError(
+            f"OpenPI frozen temporal latent must be float32, got {latent.dtype}"
+        )
+    if not np.all(np.isfinite(latent)):
+        raise ValueError("OpenPI frozen temporal latent contains NaN or Inf")
+    return latent.copy()
+
+
+def _validate_frozen_latent_pair(
+    mean_latent: np.ndarray,
+    temporal_latent: np.ndarray,
+) -> None:
+    reconstructed_mean = temporal_latent.mean(axis=0, dtype=np.float32)
+    if not np.allclose(
+        reconstructed_mean,
+        mean_latent,
+        rtol=1e-5,
+        atol=1e-6,
+    ):
+        max_error = float(np.max(np.abs(reconstructed_mean - mean_latent)))
+        raise ValueError(
+            "OpenPI temporal bins are inconsistent with the frozen mean "
+            f"latent (max_abs_error={max_error:.6g})"
+        )
+
+
 @dataclass
 class RemoteWebsocketChunkPolicy:
     """
@@ -23,6 +139,8 @@ class RemoteWebsocketChunkPolicy:
     obs_adapter: ObsAdapter
     act_dim: int = 8
     resize: int = 224
+    require_frozen_latent: bool = False
+    require_frozen_temporal_latent: bool = False
 
     def __post_init__(self) -> None:
         try:
@@ -38,12 +156,25 @@ class RemoteWebsocketChunkPolicy:
 
         self._image_tools = image_tools
         self._client = websocket_client_policy.WebsocketClientPolicy(host=self.server, port=None)
+        self._server_metadata = dict(self._client.get_server_metadata())
+        if self.require_frozen_latent or self.require_frozen_temporal_latent:
+            _validate_frozen_latent_metadata(self._server_metadata)
+        if self.require_frozen_temporal_latent:
+            _validate_frozen_temporal_latent_metadata(self._server_metadata)
         self._queue: deque[np.ndarray] = deque()
         self._last_action: np.ndarray | None = None
+        self._last_frozen_latent: np.ndarray | None = None
+        self._last_frozen_temporal_latent: np.ndarray | None = None
 
     def reset(self) -> None:
         self._queue.clear()
         self._last_action = None
+        self._last_frozen_latent = None
+        self._last_frozen_temporal_latent = None
+
+    @property
+    def server_metadata(self) -> dict[str, Any]:
+        return dict(self._server_metadata)
 
     def _preprocess_images(self, example: dict) -> dict:
         # Ensure uint8 HWC, then resize_with_pad to reduce bandwidth.
@@ -58,25 +189,93 @@ class RemoteWebsocketChunkPolicy:
         example["observation/wrist_image"] = wrist
         return example
 
-    def act(self, obs: dict) -> np.ndarray:
+    def infer_preprocessed(
+        self,
+        example: dict,
+        *,
+        inference_seed: int | None = None,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Infer from an OpenPI-format example without using the ManiSkill adapter."""
+
+        request = self._preprocess_images(example)
+        if inference_seed is not None:
+            if (
+                self._server_metadata.get("inference_seed_protocol")
+                != INFERENCE_SEED_CAPABILITY
+            ):
+                raise RuntimeError(
+                    "The OpenPI server does not support deterministic per-request "
+                    "inference seeds. Restart it with this repository's "
+                    "scripts/pi0/serve.py before deterministic rollout or paired eval."
+                )
+            request[INFERENCE_SEED_KEY] = int(inference_seed)
+        out: dict[str, Any] = self._client.infer(request)
+        latent_value = out.get(FROZEN_LATENT_KEY)
+        latent: np.ndarray | None
+        if latent_value is None:
+            if self.require_frozen_latent:
+                raise RuntimeError(
+                    f"OpenPI response is missing required {FROZEN_LATENT_KEY!r}"
+                )
+            latent = None
+        else:
+            latent = _validate_frozen_latent(latent_value)
+        temporal_value = out.get(FROZEN_TEMPORAL_LATENT_KEY)
+        if temporal_value is None:
+            if self.require_frozen_temporal_latent:
+                raise RuntimeError(
+                    f"OpenPI response is missing required {FROZEN_TEMPORAL_LATENT_KEY!r}"
+                )
+            self._last_frozen_temporal_latent = None
+        else:
+            self._last_frozen_temporal_latent = _validate_frozen_temporal_latent(
+                temporal_value
+            )
+            if latent is None:
+                raise RuntimeError(
+                    "OpenPI returned a temporal latent without its required mean latent"
+                )
+            _validate_frozen_latent_pair(
+                latent, self._last_frozen_temporal_latent
+            )
+        chunk = np.asarray(out["actions"])
+        if chunk.ndim != 2:
+            raise ValueError(f"Expected action chunk [H, D], got shape={chunk.shape}")
+        if chunk.shape[1] != self.act_dim:
+            raise ValueError(
+                f"Remote policy returned action_dim={chunk.shape[1]}, "
+                f"but the current control mode requires exactly {self.act_dim}. "
+                "Use a checkpoint trained for this control mode or override --control-mode."
+            )
+        chunk = chunk.astype(np.float32, copy=False)
+        if not np.all(np.isfinite(chunk)):
+            raise ValueError("Remote policy returned NaN or Inf actions")
+        return chunk, latent
+
+    def act(self, obs: dict, *, inference_seed: int | None = None) -> np.ndarray:
         if not self._queue:
             example = self.obs_adapter(obs)
-            example = self._preprocess_images(example)
-            out: dict[str, Any] = self._client.infer(example)
-            chunk = np.asarray(out["actions"])
-            if chunk.ndim != 2:
-                raise ValueError(f"Expected action chunk [H, D], got shape={chunk.shape}")
-            if chunk.shape[1] < self.act_dim:
-                raise ValueError(
-                    f"Remote policy returned action_dim={chunk.shape[1]}, "
-                    f"but the current control mode expects {self.act_dim}. "
-                    "Use a checkpoint trained for this control mode or override --control-mode."
-                )
-            chunk = chunk[:, : self.act_dim].astype(np.float32, copy=False)
+            chunk, self._last_frozen_latent = self.infer_preprocessed(
+                example, inference_seed=inference_seed
+            )
             for a in chunk:
                 self._queue.append(a)
         self._last_action = self._queue.popleft()
         return self._last_action
+
+    def planned_latent(self) -> np.ndarray | None:
+        """Return the frozen action latent paired with the current action chunk."""
+
+        if self._last_frozen_latent is None:
+            return None
+        return self._last_frozen_latent.copy()
+
+    def planned_temporal_latent(self) -> np.ndarray | None:
+        """Return ordered frozen action-token bins paired with the current chunk."""
+
+        if self._last_frozen_temporal_latent is None:
+            return None
+        return self._last_frozen_temporal_latent.copy()
 
     def planned_chunk(self, *, include_current: bool = True) -> np.ndarray | None:
         """

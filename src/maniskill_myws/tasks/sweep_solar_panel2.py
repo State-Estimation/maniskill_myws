@@ -5,7 +5,7 @@ import sapien
 from mani_skill.agents.robots import Panda, PandaWristCam
 
 from mani_skill.sensors.camera import CameraConfig, Union
-from mani_skill.utils import sapien_utils
+from mani_skill.utils import common, sapien_utils
 from mani_skill.envs.utils import randomization
 
 from mani_skill.envs.sapien_env import BaseEnv
@@ -18,12 +18,16 @@ import torch
 import numpy as np
 
 from maniskill_myws.task_prompts import TASK_PROMPTS
+from maniskill_myws.tasks.solar_grasp_reward import (
+    advance_grasp_event,
+    brush_grasp_candidate,
+)
 
 
 @register_env("SolarPanelStatic-v2", max_episode_steps=600)
 class SolarPanelStaticEnv2(BaseEnv):
 
-    SUPPORTED_REWARD_MODES = ["sparse", "none"]
+    SUPPORTED_REWARD_MODES = ["dense", "sparse", "none"]
     SUPPORTED_ROBOTS = ["panda", "panda_wristcam"]
     agent: Union[Panda, PandaWristCam]
 
@@ -70,6 +74,18 @@ class SolarPanelStaticEnv2(BaseEnv):
     BRUSH_PANEL_CLEARANCE: float = 0.04
     BRUSH_MAX_WORLD_X_RADIUS: float = 0.15  # ≈ half mesh Y after rotation
     BRUSH_REST_Z: float = 0.083  # = |mesh X min after rot| + clearance ≈ 0.0775 + 0.005 ≈ 0.083
+    # Collision part_0 is the handle. Bounds include the URDF's -90 degree X
+    # rotation and are expressed in the brush link frame.
+    BRUSH_HANDLE_LINK_MIN: tuple[float, float, float] = (
+        -0.0094877435,
+        -0.1615556180,
+        -0.0140000004,
+    )
+    BRUSH_HANDLE_LINK_MAX: tuple[float, float, float] = (
+        0.0195875578,
+        0.0509596728,
+        0.0140000004,
+    )
 
     ROBOT_HOME_QPOS_PANDA = np.array(
         [0.008, 0.105, 0.029, -2.747, 0.002, 2.772, 0.870, 0.04, 0.04],
@@ -119,6 +135,17 @@ class SolarPanelStaticEnv2(BaseEnv):
         clean_radius: float = 0.1,
         clean_surface_tolerance: float = 0.03,
         clean_success_ratio: float = 0.6,
+        grasp_process_reward: float = 0.25,
+        task_success_reward: float = 1.0,
+        grasp_min_contact_force: float = 0.5,
+        grasp_max_contact_angle: float = 85.0,
+        grasp_max_tcp_brush_distance: float = 0.06,
+        grasp_min_brush_lift: float = 0.12,
+        grasp_max_brush_lift: float = 0.65,
+        grasp_min_gripper_aperture: float = 0.006,
+        grasp_max_gripper_aperture: float = 0.055,
+        grasp_handle_margin: float = 0.025,
+        grasp_confirmation_steps: int = 5,
         **kwargs,
     ):
         self.robot_base_x = float(robot_base_x)
@@ -140,14 +167,70 @@ class SolarPanelStaticEnv2(BaseEnv):
         self.clean_radius = float(clean_radius)
         self.clean_surface_tolerance = float(clean_surface_tolerance)
         self.clean_success_ratio = float(clean_success_ratio)
+        self.grasp_process_reward = float(grasp_process_reward)
+        self.task_success_reward = float(task_success_reward)
+        self.grasp_min_contact_force = float(grasp_min_contact_force)
+        self.grasp_max_contact_angle = float(grasp_max_contact_angle)
+        self.grasp_max_tcp_brush_distance = float(grasp_max_tcp_brush_distance)
+        self.grasp_min_brush_lift = float(grasp_min_brush_lift)
+        self.grasp_max_brush_lift = float(grasp_max_brush_lift)
+        self.grasp_min_gripper_aperture = float(grasp_min_gripper_aperture)
+        self.grasp_max_gripper_aperture = float(grasp_max_gripper_aperture)
+        self.grasp_handle_margin = float(grasp_handle_margin)
+        self.grasp_confirmation_steps = int(grasp_confirmation_steps)
+        if self.grasp_process_reward < 0.0 or self.task_success_reward <= 0.0:
+            raise ValueError("reward scales must satisfy process >= 0 and success > 0")
+        if self.grasp_min_contact_force < 0.0:
+            raise ValueError("grasp_min_contact_force must be non-negative")
+        if not 0.0 < self.grasp_max_contact_angle <= 180.0:
+            raise ValueError("grasp_max_contact_angle must lie in (0, 180]")
+        if not 0.0 < self.grasp_max_tcp_brush_distance:
+            raise ValueError("grasp_max_tcp_brush_distance must be positive")
+        if not 0.0 <= self.grasp_min_brush_lift < self.grasp_max_brush_lift:
+            raise ValueError("brush lift bounds must satisfy 0 <= min < max")
+        if not 0.0 <= self.grasp_min_gripper_aperture < self.grasp_max_gripper_aperture:
+            raise ValueError("gripper aperture bounds must satisfy 0 <= min < max")
+        if self.grasp_handle_margin < 0.0:
+            raise ValueError("grasp_handle_margin must be non-negative")
+        if self.grasp_confirmation_steps <= 0:
+            raise ValueError("grasp_confirmation_steps must be positive")
         self._cleaned_cells: torch.Tensor | None = None
         self._clean_cell_centers: torch.Tensor | None = None
+        self._brush_spawn_height: torch.Tensor | None = None
+        self._grasp_streak: torch.Tensor | None = None
+        self._grasp_rewarded: torch.Tensor | None = None
         self.clean_markers = []
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
     def _default_sim_config(self):
-        return SimConfig(sim_freq=200, control_freq=20,scene_config=SceneConfig(gravity=[0, 0, -0.00098]))
+        return SimConfig(
+            sim_freq=200,
+            control_freq=20,
+            scene_config=SceneConfig(gravity=[0, 0, -0.00098]),
+        )
+
+    @property
+    def grasp_reward_schema(self) -> dict[str, Any]:
+        return {
+            "schema": "solar_brush_stable_grasp_event_reward_v2",
+            "applies_to_reward_modes": ["dense", "sparse"],
+            "grasp_process_reward": self.grasp_process_reward,
+            "task_success_reward": self.task_success_reward,
+            "grasp_min_contact_force": self.grasp_min_contact_force,
+            "grasp_max_contact_angle": self.grasp_max_contact_angle,
+            "grasp_max_tcp_brush_distance": self.grasp_max_tcp_brush_distance,
+            "grasp_min_brush_lift": self.grasp_min_brush_lift,
+            "grasp_max_brush_lift": self.grasp_max_brush_lift,
+            "grasp_min_gripper_aperture": self.grasp_min_gripper_aperture,
+            "grasp_max_gripper_aperture": self.grasp_max_gripper_aperture,
+            "grasp_handle_link_min": list(self.BRUSH_HANDLE_LINK_MIN),
+            "grasp_handle_link_max": list(self.BRUSH_HANDLE_LINK_MAX),
+            "grasp_handle_margin": self.grasp_handle_margin,
+            "grasp_confirmation_steps": self.grasp_confirmation_steps,
+            "grasp_reward_once_per_episode": True,
+            "task_success_terminates_episode": True,
+        }
 
     @property
     def _default_sensor_configs(self):
@@ -336,7 +419,11 @@ class SolarPanelStaticEnv2(BaseEnv):
         self.brush.set_pose(Pose.create_from_pq(p, q))
 
         self._ensure_clean_state()
+        self._ensure_grasp_reward_state()
         self._cleaned_cells[env_idx] = False
+        self._brush_spawn_height[env_idx] = p[:, 2]
+        self._grasp_streak[env_idx] = 0
+        self._grasp_rewarded[env_idx] = False
         self._update_clean_marker_poses()
 
     @staticmethod
@@ -406,6 +493,23 @@ class SolarPanelStaticEnv2(BaseEnv):
         z_centers = 0.5 * (z_edges[:-1] + z_edges[1:])
         grid_x, grid_z = torch.meshgrid(x_centers, z_centers, indexing="ij")
         self._clean_cell_centers = torch.stack([grid_x, grid_z], dim=-1).reshape(-1, 2)
+
+    def _ensure_grasp_reward_state(self):
+        if (
+            self._brush_spawn_height is None
+            or self._brush_spawn_height.shape != (self.num_envs,)
+        ):
+            self._brush_spawn_height = torch.full(
+                (self.num_envs,), self.brush_z, dtype=torch.float32, device=self.device
+            )
+        if self._grasp_streak is None or self._grasp_streak.shape != (self.num_envs,):
+            self._grasp_streak = torch.zeros(
+                self.num_envs, dtype=torch.int32, device=self.device
+            )
+        if self._grasp_rewarded is None or self._grasp_rewarded.shape != (self.num_envs,):
+            self._grasp_rewarded = torch.zeros(
+                self.num_envs, dtype=torch.bool, device=self.device
+            )
 
     def _update_clean_marker_poses(self):
         if len(self.clean_markers) == 0 or self._cleaned_cells is None:
@@ -489,6 +593,7 @@ class SolarPanelStaticEnv2(BaseEnv):
 
     def evaluate(self):
         self._ensure_clean_state()
+        self._ensure_grasp_reward_state()
 
         face_panel = self._get_brush_face_panel_local()  # (B, 4, 3)
 
@@ -523,7 +628,80 @@ class SolarPanelStaticEnv2(BaseEnv):
         success = clean_coverage >= self.clean_success_ratio
 
         brush_p = self.brush.pose.p
-        brush_height = brush_p[:, 2] if brush_p.ndim == 2 else brush_p[2]
+        if brush_p.ndim == 1:
+            brush_p = brush_p.unsqueeze(0)
+        brush_height = brush_p[:, 2]
+        tcp_p = self.agent.tcp.pose.p
+        if tcp_p.ndim == 1:
+            tcp_p = tcp_p.unsqueeze(0)
+        tcp_brush_distance = torch.linalg.norm(tcp_p - brush_p, dim=-1)
+        brush_lift = brush_height - self._brush_spawn_height
+        brush_t = self.brush.pose.to_transformation_matrix()
+        if brush_t.ndim == 2:
+            brush_t = brush_t.unsqueeze(0)
+        tcp_brush_local = (
+            brush_t[:, :3, :3].transpose(-1, -2)
+            @ (tcp_p - brush_p).unsqueeze(-1)
+        ).squeeze(-1)
+        handle_low = torch.tensor(
+            self.BRUSH_HANDLE_LINK_MIN,
+            dtype=tcp_brush_local.dtype,
+            device=self.device,
+        ) - self.grasp_handle_margin
+        handle_high = torch.tensor(
+            self.BRUSH_HANDLE_LINK_MAX,
+            dtype=tcp_brush_local.dtype,
+            device=self.device,
+        ) + self.grasp_handle_margin
+        tcp_in_handle_region = (
+            (tcp_brush_local >= handle_low) & (tcp_brush_local <= handle_high)
+        ).all(dim=-1)
+
+        left_contact_force = self.scene.get_pairwise_contact_forces(
+            self.agent.finger1_link, self.brush
+        )
+        right_contact_force = self.scene.get_pairwise_contact_forces(
+            self.agent.finger2_link, self.brush
+        )
+        left_finger_force = torch.linalg.norm(left_contact_force, dim=-1)
+        right_finger_force = torch.linalg.norm(right_contact_force, dim=-1)
+        left_finger_direction = (
+            self.agent.finger1_link.pose.to_transformation_matrix()[..., :3, 1]
+        )
+        right_finger_direction = -(
+            self.agent.finger2_link.pose.to_transformation_matrix()[..., :3, 1]
+        )
+        left_contact_angle = torch.rad2deg(
+            common.compute_angle_between(left_finger_direction, left_contact_force)
+        )
+        right_contact_angle = torch.rad2deg(
+            common.compute_angle_between(right_finger_direction, right_contact_force)
+        )
+        panda_is_grasping = (
+            (left_finger_force >= self.grasp_min_contact_force)
+            & (right_finger_force >= self.grasp_min_contact_force)
+            & (left_contact_angle <= self.grasp_max_contact_angle)
+            & (right_contact_angle <= self.grasp_max_contact_angle)
+        )
+        qpos = self.agent.robot.get_qpos()
+        if qpos.ndim == 1:
+            qpos = qpos.unsqueeze(0)
+        gripper_aperture = qpos[:, -2:].sum(dim=-1)
+        grasp_candidate = brush_grasp_candidate(
+            left_finger_force=left_finger_force,
+            right_finger_force=right_finger_force,
+            panda_is_grasping=panda_is_grasping,
+            tcp_in_handle_region=tcp_in_handle_region,
+            tcp_brush_distance=tcp_brush_distance,
+            brush_lift=brush_lift,
+            gripper_aperture=gripper_aperture,
+            min_contact_force=self.grasp_min_contact_force,
+            max_tcp_brush_distance=self.grasp_max_tcp_brush_distance,
+            min_brush_lift=self.grasp_min_brush_lift,
+            max_brush_lift=self.grasp_max_brush_lift,
+            min_gripper_aperture=self.grasp_min_gripper_aperture,
+            max_gripper_aperture=self.grasp_max_gripper_aperture,
+        )
 
         return {
             "success": success,
@@ -531,6 +709,19 @@ class SolarPanelStaticEnv2(BaseEnv):
             "cleaning_contact": all_near,
             "brush_height": brush_height,
             "brush_face_panel": face_panel,
+            "brush_lift": brush_lift,
+            "tcp_brush_distance": tcp_brush_distance,
+            "tcp_brush_local": tcp_brush_local,
+            "tcp_in_brush_handle_region": tcp_in_handle_region,
+            "gripper_aperture": gripper_aperture,
+            "left_finger_brush_force": left_finger_force,
+            "right_finger_brush_force": right_finger_force,
+            "left_finger_brush_contact_angle": left_contact_angle,
+            "right_finger_brush_contact_angle": right_contact_angle,
+            "panda_is_grasping_brush": panda_is_grasping,
+            "brush_grasp_candidate": grasp_candidate,
+            "grasp_stable_steps": self._grasp_streak.clone(),
+            "grasp_rewarded": self._grasp_rewarded.clone(),
         }
 
     def _get_obs_extra(self, info: dict):
@@ -550,5 +741,33 @@ class SolarPanelStaticEnv2(BaseEnv):
             )
         return obs
 
+    def _advance_grasp_reward(self, info: dict) -> torch.Tensor:
+        self._ensure_grasp_reward_state()
+        self._grasp_streak, event, self._grasp_rewarded = advance_grasp_event(
+            info["brush_grasp_candidate"],
+            self._grasp_streak,
+            self._grasp_rewarded,
+            confirmation_steps=self.grasp_confirmation_steps,
+        )
+        info["grasp_stable_steps"] = self._grasp_streak.clone()
+        info["brush_grasp_confirmed"] = (
+            self._grasp_streak >= self.grasp_confirmation_steps
+        )
+        info["grasp_reward_event"] = event
+        info["grasp_rewarded"] = self._grasp_rewarded.clone()
+        return event
+
+    def _compute_milestone_reward(self, info: dict) -> torch.Tensor:
+        grasp_event = self._advance_grasp_reward(info)
+        success = info.get("success", torch.tensor(False, device=self.device))
+        process_reward = self.grasp_process_reward * grasp_event.to(torch.float32)
+        result_reward = self.task_success_reward * success.to(torch.float32)
+        info["grasp_process_reward"] = process_reward
+        info["task_result_reward"] = result_reward
+        return process_reward + result_reward
+
     def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: dict):
-        return info.get("success", torch.tensor(False, device=self.device)).to(torch.float32)
+        return self._compute_milestone_reward(info)
+
+    def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: dict):
+        return self._compute_milestone_reward(info)

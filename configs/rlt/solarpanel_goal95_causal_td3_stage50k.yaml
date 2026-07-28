@@ -1,0 +1,126 @@
+schema: solarpanel_goal95_preregistered_training_v1
+date: 2026-07-28
+status: falsified_stopped_at_150472
+objective: >-
+  Break the self-confirming Q-gate loop on difficult SolarPanelStatic-v2 grasp
+  contexts while retaining the original Pi0, CPU PhysX, 50-step chunks, fixed
+  action schema, and unmodified environment reward.
+starting_artifacts:
+  checkpoint: >-
+    outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_knot_seed2000_resume2x_100k/frozen_latent_residual.pt
+  replay: >-
+    outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_knot_seed2000_resume2x_100k/online_replay.npz
+  trainer_state: >-
+    outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_knot_seed2000_resume2x_100k/trainer_state.json
+  resumed_env_steps: 100000
+hypothesis: >-
+  The old collector explored only when the critic rejected the actor proposal.
+  Consequently, high-Q wrong actions on the known hard contexts were executed
+  but never perturbed, so the critic could not learn their local causal action
+  gradient. Exploration independent of Q acceptance, together with explicit
+  Base-control episodes and balanced sampling of successful and failed executed
+  residuals, should correct that feedback loop. On one fresh 100-seed development
+  evaluation this should reach at least 90 task successes, at least 94 grasps,
+  retain a paired gain of at least 10 percentage points, and cause at most two
+  Base-success regressions.
+algorithm:
+  family: frozen_latent_td3
+  selector: conservative_twin_q
+  independent_online_exploration: true
+  exploration_probability_per_eligible_boundary: 0.35
+  exploration_normalized_std: 0.30
+  exploration_annealing: fixed_during_stage
+  base_control_episode_probability: 0.20
+  replay_nonzero_fraction: 0.50
+  replay_nonzero_success_fraction: 0.50
+  max_interventions_per_episode: 2
+  intervention_cooldown_chunks: 1
+  min_q_advantage_at_deployment: 0.10
+  uses_candidate_rollouts: false
+  uses_pca: false
+  changes_actor_or_critic_architecture: false
+  changes_reward_or_success_condition: false
+environment:
+  env_id: SolarPanelStatic-v2
+  obs_mode: rgb
+  reward_mode: sparse
+  control_mode: pd_joint_pos
+  sim_backend: physx_cpu
+  render_backend: sapien_cuda:0
+  enhanced_determinism: false
+  chunk_len: 50
+  max_episode_steps: 500
+training:
+  seed: 2000
+  stage_target_env_steps: 150000
+  additional_env_step_budget: 50000
+  batch_size: 128
+  updates_per_chunk: 2
+  buffer_capacity: 50000
+  checkpoint_selection: final_150000_only
+development_evaluation:
+  seeds: 32000-32099
+  evaluation_count: 1
+  base_and_rl_paired: true
+  checkpoint: 150000
+  required_metrics:
+    - paired_task_success
+    - paired_grasp_success
+    - rescue_and_regression_counts
+    - intervention_count_distribution
+    - intervention_conditioned_success
+    - bootstrap_confidence_interval
+continuation_gate:
+  minimum_rl_successes: 90
+  minimum_rl_grasps: 94
+  minimum_paired_gain_percentage_points: 10
+  maximum_regressions: 2
+  rule: >-
+    All conditions must pass. If they do, preregister at most one additional
+    training stage and evaluate it once on another fresh development range. If
+    any condition fails, stop this branch and diagnose the fixed failure set;
+    do not extend training, change thresholds, or retest the same seeds.
+falsification:
+  - The 150k development evaluation has fewer than 90 RL successes.
+  - The paired gain is below 10 percentage points.
+  - RL grasp success is below 94/100.
+  - More than two Base-success episodes regress under RL.
+logging:
+  wandb: required_online
+  project: maniskill-myws-rlt
+  training_run_name: SolarPanelStatic-v2-goal95-causal-td3-100k-to-150k
+  evaluation_run_name: SolarPanelStatic-v2-goal95-causal-td3-150k-dev32000
+  tags: [goal95, preregistered, causal-exploration, balanced-replay, cpu-physx]
+  training_wandb: >-
+    https://wandb.ai/1632003631-beijing-institute-of-technology/maniskill-myws-rlt/runs/iy0kg1s2
+formal_final_seed_range: 40000-40099
+formal_final_status: untouched
+output_dir: outputs/rlt/SolarPanelStatic-v2_goal95_causal_td3_seed2000_150k
+result:
+  training_env_steps: 150472
+  training_episodes: 149
+  training_nonzero_residuals_added: 185
+  evaluation_wandb: >-
+    https://wandb.ai/1632003631-beijing-institute-of-technology/maniskill-myws-rlt/runs/94g9nkt0
+  development_seed_range: 32000-32099
+  base_successes: 67
+  rl_successes: 84
+  base_grasped: 72
+  rl_grasped: 87
+  rescues: 18
+  regressions: 1
+  paired_gain_percentage_points: 17
+  bootstrap_95ci_percentage_points: [9, 25]
+  intervention_distribution:
+    zero: {episodes: 51, successes: 44}
+    one: {episodes: 39, successes: 30}
+    two_plus: {episodes: 10, successes: 10}
+  falsification_reasons:
+    - RL task success was 84/100, below the required 90/100.
+    - RL grasp success was 87/100, below the required 94/100.
+  conclusion: >-
+    Independent exploration and balanced replay improved paired rescue safety
+    but did not supply enough useful positive residual directions. Stop this
+    continuation without adding more steps or tuning the Q threshold on the
+    same development seeds. Diagnose the fixed failures to separate actor
+    proposal failure from Q-gate rejection before preregistering another stage.

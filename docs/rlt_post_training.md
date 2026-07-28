@@ -1,201 +1,200 @@
-# ManiSkill RLT Post-Training
+# Frozen-Pi0 Residual RL
 
-This branch contains a ManiSkill-native PyTorch implementation of the RLT
-online post-training structure without RL-token conditioning.
+This repository maintains one implementation family for `SolarPanelStatic-v2`:
 
-## Mapping From RLT To ManiSkill
+1. mean-latent frozen-Pi0 TD3, including the causal exploration/replay variant;
+2. its 5-bin temporal-latent continuation.
 
-- Original RLT actor input: `z_rl + proprio + ref_chunk`
-- ManiSkill RLT actor input: `state + optional RGB encoder + ref_chunk`
-- Original RLT action default: 7D real-robot action
-- ManiSkill RLT action: strict `pd_joint_pos` 8D action
+The temporal checkpoint is the current parent for future experiments. The two
+paths use the same Pi0, `pd_joint_pos` action schema, CPU PhysX simulator,
+50-step action chunks, and real environment rewards.
 
-The 8D action layout is:
+## Runtime contract
 
-```text
-[7 Panda arm joint position targets, 1 gripper target]
-```
-
-## Model
-
-Core code lives in `src/maniskill_myws/rlt`:
-
-- `networks.py`: chunk actor, twin critic, optional ResNetV1-10 RGB encoder
-- `replay.py`: fixed-length chunk replay buffer
-- `dataset.py`: ManiSkill rollout H5 to Base-policy replay chunks
-- `trainer.py`: TD target, actor/critic updates, pd_joint_pos regularizers
-- `hil.py`: keyboard-controlled human-in-the-loop Base/RLT gate
-- `state.py`: ManiSkill state/RGB adapters
-- `policies.py`: zero/random/OpenPI reference chunk providers
-
-The actor is conditioned on a frozen reference chunk from OpenPI. By default it
-predicts a bounded correction around that reference:
+At each 50-step boundary, Pi0 returns:
 
 ```text
-action_chunk = clip(ref_chunk + tanh(raw_delta) * action_delta_scale)
+reference chunk: 50 x 8 pd_joint_pos actions
+mean latent:     1024-D final-denoise action-suffix feature
+temporal latent: 5 x 1024 ordered pools (temporal mode only)
 ```
 
-Set `actor_output_mode="absolute"` in `RLTTrainConfig` if you want the actor to
-predict absolute chunks directly.
-
-## Loss
-
-The critic follows RLT-style chunk TD learning:
+The residual actor receives the robot state (`qpos`, `qvel`, `tcp_pose`), the
+remaining horizon, the Pi0 reference chunk, and the frozen latent. It predicts
+six smooth residual knots which are interpolated to a full `50 x 8` residual.
+The executed action is always:
 
 ```text
-target = discounted_chunk_reward + gamma^T * min(Q1_target, Q2_target)
+clip(reference + normalized_residual * action_scale, action_low, action_high)
 ```
 
-The actor uses:
+The actor is zero initialized. The twin critic compares the residual chunk with
+the exact Base chunk. Deployment accepts a residual only when the pessimistic
+twin-Q advantage is at least `0.10`; otherwise the exact Pi0 chunk is executed.
+
+There is no raw RGB encoder in the residual network, no progress reward, no
+stage router, no action candidate rollout, and no policy teacher. The frozen
+Pi0 latent is the only visual/action-aligned signal.
+
+The environment is the only reward source:
+
+- stable brush grasp and lift: `0.25`, once per episode;
+- task completion: `1.0`, with episode termination.
+
+## Causal TD3
+
+The causal variant keeps the mean latent and TD3 architecture. It changes only
+the data-generation loop so the critic sees useful positive and negative local
+actions:
+
+- at each eligible boundary, online exploration is independent of Q acceptance;
+- exploration probability is `0.35` with smooth normalized noise `0.30`;
+- `20%` of episodes are Base-only control episodes;
+- replay batches target `50%` nonzero residuals and balanced successful/failed
+  nonzero outcomes;
+- the actor receives an auxiliary success self-imitation loss on successful
+  executed residuals;
+- deployment allows up to two interventions with one-chunk cooldown.
+
+This breaks the failure mode where a high-Q but wrong actor proposal is always
+accepted and never perturbed. It does not change the reward or action schema.
+
+The preregistered Causal TD3 run reached `84/100` on seeds `32000--32099`
+(Base `67/100`, paired gain `+17pp`, 18 rescues, 1 regression). It improved on
+the original mean-latent checkpoint but did not meet the `90/100` continuation
+gate.
+
+## Temporal latent
+
+The temporal continuation starts from the Causal checkpoint. Let `H` be the
+`50 x 1024` final-denoise action-token hidden state from Pi0. The legacy feature
+is the global mean:
 
 ```text
-actor_loss = bc_weight * BC
-           - q_weight * Q
-           + correction_weight * correction
-           + smoothness_weight * smoothness
+z_mean = mean(H, axis=0)
 ```
 
-For ManiSkill `pd_joint_pos`, the regularizers are redefined:
+Temporal mode additionally computes five ordered ten-token pools:
 
-- `correction`: MSE between predicted and reference chunks for the first 7 arm
-  joint dimensions only
-- `smoothness`: MSE between predicted and target step-to-step arm joint deltas
-- `gripper_smoothness`: computed on the 8th dimension, down-weighted by
-  `gripper_smoothness_weight` because gripper commands can be discontinuous
+```text
+z_bins[k] = mean(H[10*k:10*(k+1)], axis=0)
+```
 
-## Online Training
+The exact mean branch is retained. Centered temporal differences are passed
+through a small `1024 -> 64 -> 256` adapter with a scalar gate initialized to
+zero, so the upgraded policy is behavior-exact at initialization. Old mean
+replay is migrated by repeating the exact mean across the five bins; only new
+online samples contain temporal contrast.
 
-Start the OpenPI server first, then run:
+Temporal latent is a feature representation, not five action phases: the
+actor still outputs one complete 50-step residual chunk, and interventions are
+still made only at chunk boundaries.
+
+The temporal run used an additional `100k` CPU-PhysX environment steps and
+reached `91/100` on fixed seeds `35000--35099` (Base `66/100`, 26 rescues, 1
+regression). This number includes the Causal training/data improvements, so it
+is not an isolated ablation of temporal pooling.
+
+## OpenPI server
+
+For mean-latent training/evaluation:
 
 ```bash
-python scripts/rlt/train_chunk_rlt_online.py \
-  --env-id OpenSafeDoor-v2 \
-  --obs-mode rgb \
-  --reward-mode sparse \
-  --control-mode pd_joint_pos \
-  --base-policy remote_openpi \
-  --server ws://127.0.0.1:8000 \
-  --chunk-len 50 \
-  --warmup-transitions 600 \
-  --updates-per-chunk 5 \
-  --output-dir outputs/rlt/OpenSafeDoor-v2
+cd /home/sisyphus/Projects/maniskill_myws/third_party/openpi
+CUDA_VISIBLE_DEVICES=0 uv run python ../../scripts/pi0/serve.py \
+  --config pi0_maniskill \
+  --checkpoint ../../checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_SolarPanelStatic-v20_pd_joint_pos_success_traj_32batch/29999 \
+  --port 8011 --xla-safe --frozen-action-latent
 ```
 
-`--chunk-len` should match the action horizon of the reference policy checkpoint
-unless you intentionally want to truncate the chunk and replan more often. The
-default `pi0_maniskill` config uses `Pi0Config()` whose action horizon is 50.
-
-For visual RLT, add:
+For temporal-latent training/evaluation, replace the final flag with:
 
 ```bash
-  --use-visual-rlt \
-  --rlt-image-size 128
+--frozen-action-temporal-latent
 ```
 
-### Prefill warmup from existing rollouts
+The client validates the protocol, latent shape, action horizon, policy
+identity, and runtime identity before execution.
 
-Existing ManiSkill RecordEpisode `.h5` rollouts can replace live Base-policy
-warmup collection:
+## Training commands
+
+The Causal continuation is defined in
+`configs/rlt/solarpanel_goal95_causal_td3_stage50k.yaml`. A typical invocation
+is:
 
 ```bash
-python scripts/rlt/train_chunk_rlt_online.py \
-  --env-id TurnGlobeValve-v1 \
-  --reward-mode sparse \
-  --base-policy remote_openpi \
-  --server ws://127.0.0.1:8000 \
-  --chunk-len 50 \
-  --warmup-transitions 600 \
-  --warmup-dataset \
-    dataset/Pi0_rollout_TurnGlobeValve-v1_pd_joint_pos/pi0_base_policy.h5 \
-  --offline-updates 1000 \
-  --output-dir outputs/rlt/TurnGlobeValve-v1_prefilled
+CUDA_VISIBLE_DEVICES=1 conda run --no-capture-output -n mani_skill \
+python -u scripts/rlt/train_frozen_latent_residual.py \
+  --env-id SolarPanelStatic-v2 --obs-mode rgb --reward-mode sparse \
+  --control-mode pd_joint_pos --sim-backend physx_cpu \
+  --render-backend sapien_cuda:0 --no-enhanced-determinism \
+  --server ws://127.0.0.1:8011 --seed 2000 --device cuda:0 \
+  --chunk-len 50 --max-episode-steps 500 --total-env-steps 150000 \
+  --resume-checkpoint outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_knot_seed2000_resume2x_100k/frozen_latent_residual.pt \
+  --resume-replay outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_knot_seed2000_resume2x_100k/online_replay.npz \
+  --temporal-latent-bins 1 \
+  --independent-online-exploration --online-explore-probability 0.35 \
+  --base-control-episode-probability 0.20 \
+  --replay-nonzero-fraction 0.50 --replay-nonzero-success-fraction 0.50 \
+  --updates-per-chunk 2 --conservative-q-weight 0.10 \
+  --max-online-intervention-chunks-per-episode 2 \
+  --intervention-cooldown-chunks 1 --min-q-advantage 0.10 \
+  --wandb-enabled --wandb-new-run --wandb-project maniskill-myws-rlt \
+  --output-dir outputs/rlt/solarpanel_causal_retrain
 ```
 
-The loader uses contiguous rollout actions as both `ref_chunk` and
-`action_chunk`, labels every loaded step as `BASE`, and preserves rewards,
-termination, success, optional RGB observations, and episode boundaries. It
-loads at most `--warmup-transitions` chunks by default; override that limit with
-`--warmup-dataset-transitions`. Repeat `--warmup-dataset` to load more than one
-compatible H5 file.
+The Temporal continuation is defined in
+`configs/rlt/solarpanel_goal95_temporal_latent_stage100k.yaml` and uses:
 
-The sibling JSON metadata is checked against `--env-id`, `--control-mode`, and
-`--reward-mode`. Use a matching reward mode because mixing sparse and dense
-critic targets is normally invalid. `--allow-warmup-metadata-mismatch` is
-available only for intentionally transformed datasets. Nonstandard H5 fields
-can be selected with `--warmup-action-key` and `--warmup-reward-key`.
+```text
+--upgrade-mean-checkpoint <causal mean checkpoint>
+--upgrade-mean-replay <causal mean replay>
+--temporal-latent-bins 5
+--temporal-adapter-dim 64
+```
 
-`--offline-updates` trains from the prefilled buffer before the first online
-step. If the H5 contains fewer than `--warmup-transitions` chunks, online Base
-rollouts continue filling the remainder and HIL keeps RLT locked until the
-threshold is reached.
+Both runs require online W&B logging for any new experiment. The trainer keeps
+the actor locked until critic warmup and minimum success/failure/nonzero replay
+coverage are present.
 
-### Human-in-the-loop intervention timing
+## Paired evaluation
 
-Add `--hil-keyboard --render-mode human` when a person should decide exactly
-when RLT is allowed to intervene:
+Standard paired evaluation uses CPU PhysX and the same OpenPI server:
 
 ```bash
-python scripts/rlt/train_chunk_rlt_online.py \
-  --env-id TurnGlobeValve-v1 \
-  --base-policy remote_openpi \
-  --server ws://127.0.0.1:8000 \
-  --chunk-len 50 \
-  --hil-keyboard \
-  --hil-mode hold \
-  --render-mode human \
-  --real-time \
-  --output-dir outputs/rlt/TurnGlobeValve-v1_hil
+CUDA_VISIBLE_DEVICES=1 conda run --no-capture-output -n mani_skill \
+python -u scripts/rlt/eval_frozen_latent_residual.py \
+  --checkpoint outputs/rlt/SolarPanelStatic-v2_goal95_temporal_latent_seed5000_100k/frozen_latent_residual.pt \
+  --env-id SolarPanelStatic-v2 --obs-mode rgb --reward-mode sparse \
+  --control-mode pd_joint_pos --sim-backend physx_cpu \
+  --render-backend sapien_cuda:0 --no-enhanced-determinism \
+  --server ws://127.0.0.1:8011 \
+  --device cuda:0 --start-seed 35000 --num-seeds 100 \
+  --min-q-advantage 0.10 --max-intervention-chunks-per-episode 2 \
+  --intervention-cooldown-chunks 1 \
+  --wandb-enabled --output-dir outputs/rlt/temporal_eval_35000
 ```
 
-Click the SAPIEN viewer once so it has keyboard focus. In the default `hold`
-mode, Base/OpenPI controls the robot unless `R` is held; releasing `R` returns
-control to Base immediately. Holding `B` forces Base even if `R` is also held.
-Press `Q` to stop safely and save the checkpoint.
+For the live SAPIEN viewer and simultaneous Base/RL TCP traces, add:
 
-For latched control, use `--hil-mode latch`: press `R` once to enable RLT and
-press `B` to return to Base. Keys can be changed with `--hil-rlt-key`,
-`--hil-base-key`, and `--hil-quit-key`.
-
-Keyboard HIL enables real-time pacing by default, using the environment's
-`control_freq` (20 Hz for the four custom tasks). `--real-time` can also enable
-it explicitly, while `--no-real-time` disables it. Real-time pacing is needed
-for reliable human input because an unthrottled simulator can finish an episode
-before a key can be held or tapped.
-
-The gate is polled before every low-level environment step, so a single chunk
-can contain both Base and RLT actions. Replay stores the per-step source and
-marks the aggregate transition as `MIXED`. RLT remains locked until
-`--warmup-transitions` Base chunks have been collected or prefilled; this
-argument counts chunk transitions, not individual environment steps.
-
-## Evaluation
-
-Evaluate the final RLT checkpoint against the same OpenPI reference server:
-
-```bash
-python scripts/rlt/eval_chunk_rlt.py \
-  --env-id TurnGlobeValve-v1 \
-  --checkpoint outputs/rlt/TurnGlobeValve-v1_pi0_chunk50/maniskill_rlt.pt \
-  --server ws://127.0.0.1:8000 \
-  --start-seed 108 \
-  --num-seeds 100 \
-  --max-steps 600 \
-  --output-name TurnGlobeValve-v1_rlt_chunk50_eval_108_207
+```text
+--render-mode human --live-paired-trajectories --real-time
 ```
 
-For live visualization of a single rollout:
+The live overlay draws Base in blue and residual RL in orange. It performs no
+Base prepass; before the first intervention, the two same-seed environments are
+checked step by step for identical state and Pi0 chunks.
 
-```bash
-python scripts/rlt/eval_chunk_rlt.py \
-  --env-id TurnGlobeValve-v1 \
-  --checkpoint outputs/rlt/TurnGlobeValve-v1_pi0_chunk50/maniskill_rlt.pt \
-  --server ws://127.0.0.1:8000 \
-  --seed 108 \
-  --num-seeds 1 \
-  --max-steps 600 \
-  --render-mode human \
-  --real-time
-```
+## Maintained files
 
-The implementation intentionally rejects non-8D actions so it cannot silently
-train on a controller other than ManiSkill `pd_joint_pos`.
+- `scripts/rlt/train_frozen_latent_residual.py`
+- `scripts/rlt/eval_frozen_latent_residual.py`
+- `src/maniskill_myws/rlt/frozen_latent_rl.py`
+- `src/maniskill_myws/rlt/policies.py`
+- `src/maniskill_myws/rlt/backend.py`, `reset.py`, `state.py`
+- `configs/rlt/solarpanel_goal95_causal_td3_stage50k.yaml`
+- `configs/rlt/solarpanel_goal95_temporal_latent_stage100k.yaml`
+
+The parent checkpoint paths and results needed to reproduce either continuation
+are recorded in these two configuration files; historical experiment configs
+are intentionally not maintained.
