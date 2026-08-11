@@ -194,6 +194,7 @@ cython_debug/
 # Workspace data / outputs
 data/
 outputs/
+/wandb/
 
 # Local workspace state and generated training artifacts
 /.codex
