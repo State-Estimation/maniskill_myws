@@ -197,6 +197,12 @@ def _should_explore_online(
     return bool(rng.random() < probability)
 
 
+def _legacy_budget_exhausted(
+    *, env_steps: int, total_env_steps: int, enabled: bool
+) -> bool:
+    return bool(enabled and env_steps >= total_env_steps)
+
+
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -457,6 +463,23 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-len", type=int, default=50)
     parser.add_argument("--max-episode-steps", type=int, default=500)
     parser.add_argument("--total-env-steps", type=int, default=50_000)
+    parser.add_argument(
+        "--legacy-exact-budget-truncation",
+        action="store_true",
+        help=(
+            "End the final episode exactly at total-env-steps, matching the "
+            "pre-Causal Frozen training run."
+        ),
+    )
+    parser.add_argument(
+        "--legacy-frozen-execution",
+        action="store_true",
+        help=(
+            "Use the pre-Causal Frozen trainer's observable execution path: "
+            "skip post-pretrain serialization and the diagnostic executed-Q "
+            "forward. Historical hyperparameters are validated below."
+        ),
+    )
     parser.add_argument("--buffer-capacity", type=int, default=50_000)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--initial-replay", default=None)
@@ -583,6 +606,53 @@ def _parse_args() -> argparse.Namespace:
         parser.error("loss weights must be non-negative")
     if args.wandb_enabled and not args.wandb_project.strip():
         parser.error("--wandb-project must be non-empty when W&B is enabled")
+
+    if args.legacy_frozen_execution:
+        exact_values = {
+            "sim_backend": "physx_cpu",
+            "reward_mode": "sparse",
+            "seed": 2000,
+            "chunk_len": 50,
+            "max_episode_steps": 500,
+            "buffer_capacity": 50_000,
+            "batch_size": 128,
+            "temporal_latent_bins": 1,
+            "initial_critic_updates": 2_000,
+            "updates_per_chunk": 2,
+            "base_control_episode_probability": 0.0,
+            "replay_nonzero_fraction": 0.0,
+            "online_explore_probability": 0.02,
+            "conservative_q_weight": 0.10,
+            "actor_success_bc_weight": 0.0,
+            "min_q_advantage": 0.10,
+            "max_online_intervention_chunks_per_episode": 1,
+            "intervention_cooldown_chunks": 0,
+        }
+        mismatches = []
+        for name, expected in exact_values.items():
+            actual = getattr(args, name)
+            matches = (
+                bool(np.isclose(actual, expected))
+                if isinstance(expected, float)
+                else actual == expected
+            )
+            if not matches:
+                mismatches.append(f"{name}={actual!r} (expected {expected!r})")
+        required_flags = {
+            "enhanced_determinism": False,
+            "legacy_exact_budget_truncation": True,
+            "independent_online_exploration": True,
+        }
+        for name, expected in required_flags.items():
+            actual = bool(getattr(args, name))
+            if actual is not expected:
+                mismatches.append(f"{name}={actual!r} (expected {expected!r})")
+        if not args.initial_replay:
+            mismatches.append("initial_replay is required")
+        if mismatches:
+            parser.error(
+                "--legacy-frozen-execution contract mismatch: " + "; ".join(mismatches)
+            )
 
     sources = [
         bool(args.initial_replay),
@@ -862,7 +932,11 @@ def main() -> None:
             raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint_path}")
         if resume_replay_path is None or not resume_replay_path.is_file():
             raise FileNotFoundError(f"Resume replay not found: {resume_replay_path}")
-        agent = FrozenLatentResidualAgent.load(resume_checkpoint_path, device=device)
+        agent = FrozenLatentResidualAgent.load(
+            resume_checkpoint_path,
+            device=device,
+            legacy_actor_success_bc_weight=args.actor_success_bc_weight,
+        )
         agent.assert_runtime_identity(runtime_identity)
         if agent.config != config:
             raise ValueError("Resume checkpoint configuration does not match")
@@ -966,12 +1040,35 @@ def main() -> None:
         "action_parameterization": "six_knot_continuous_fifty_step_residual",
         "replay_stores_exact_executed_actions": True,
         "initial_replay_transitions": initial_replay_size,
+        "initial_replay_load": (
+            {
+                "last_load_was_exact": bool(replay.last_load_was_exact),
+                "snapshot_id": replay.last_loaded_snapshot_id,
+                "migration": (
+                    dict(replay.last_migration_stats)
+                    if replay.last_migration_stats is not None
+                    else None
+                ),
+            }
+            if initial_replay_size
+            else None
+        ),
         "initial_replay_successes": initial_successes,
         "initial_replay_failures": initial_failures,
         "initial_replay_nonzero_transitions": initial_nonzero_transitions,
         "reward_source": "environment_grasp_event_plus_task_success",
         "environment_reward_schema": reward_schema,
         "discount_semantics": "gamma_per_full_chunk_with_duration_fraction_v1",
+        "training_budget_semantics": (
+            "legacy_hard_total_env_steps"
+            if args.legacy_exact_budget_truncation
+            else "finish_started_episode"
+        ),
+        "legacy_frozen_execution": {
+            "enabled": bool(args.legacy_frozen_execution),
+            "skips_post_pretrain_snapshot": bool(args.legacy_frozen_execution),
+            "skips_executed_q_diagnostic": bool(args.legacy_frozen_execution),
+        },
         "selector": "conservative_twin_q",
         "uses_success_self_imitation": bool(config.actor_success_bc_weight),
         "uses_pca": False,
@@ -1139,7 +1236,7 @@ def main() -> None:
                         },
                     }
                 )
-    if args.initial_critic_updates:
+    if args.initial_critic_updates and not args.legacy_frozen_execution:
         save_snapshot()
 
     metrics: dict[str, float] = {}
@@ -1181,8 +1278,13 @@ def main() -> None:
             pending: tuple[np.ndarray, np.ndarray] | None = None
             episode_transitions: list[dict[str, Any]] = []
 
-            # Finish any started episode so its Monte-Carlo return is real.
-            while episode_step < args.max_episode_steps:
+            while episode_step < args.max_episode_steps and (
+                not _legacy_budget_exhausted(
+                    env_steps=env_steps,
+                    total_env_steps=args.total_env_steps,
+                    enabled=args.legacy_exact_budget_truncation,
+                )
+            ):
                 if pending is None:
                     ref, latent = _plan_frozen_policy(
                         policy,
@@ -1342,6 +1444,11 @@ def main() -> None:
                         _done(terminated)
                         or _done(truncated)
                         or episode_step >= args.max_episode_steps
+                        or _legacy_budget_exhausted(
+                            env_steps=env_steps,
+                            total_env_steps=args.total_env_steps,
+                            enabled=args.legacy_exact_budget_truncation,
+                        )
                     )
                     if done:
                         break
@@ -1360,7 +1467,7 @@ def main() -> None:
                         executed_residual,
                         step_id=start_step,
                     )
-                    if ready
+                    if ready and not args.legacy_frozen_execution
                     else float("nan")
                 )
                 reward_array = np.zeros((args.chunk_len,), dtype=np.float32)

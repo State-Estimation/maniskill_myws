@@ -17,6 +17,61 @@ evaluator = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evaluator)
 
 
+def test_checkpoint_environment_mismatch_fails_before_rollout() -> None:
+    with pytest.raises(ValueError, match="trained for 'TakeSafetyHook-v1'"):
+        evaluator._assert_checkpoint_environment(
+            "TakeSafetyHook-v2",
+            {"env_id": "TakeSafetyHook-v1"},
+        )
+
+
+def test_terminal_sparse_reward_schema_fallback_is_checkpoint_gated() -> None:
+    env = SimpleNamespace(
+        unwrapped=SimpleNamespace(SUPPORTED_REWARD_MODES=["sparse", "none"])
+    )
+
+    schema = evaluator._environment_reward_schema(
+        env,
+        reward_mode="sparse",
+        expected_schema=evaluator.TERMINAL_SUCCESS_SPARSE_REWARD_SCHEMA,
+    )
+
+    assert schema == evaluator.TERMINAL_SUCCESS_SPARSE_REWARD_SCHEMA
+    assert schema is not evaluator.TERMINAL_SUCCESS_SPARSE_REWARD_SCHEMA
+
+
+def test_terminal_sparse_reward_schema_fallback_fails_closed() -> None:
+    env = SimpleNamespace(
+        unwrapped=SimpleNamespace(SUPPORTED_REWARD_MODES=["sparse", "none"])
+    )
+
+    with pytest.raises(RuntimeError, match="does not declare the exact"):
+        evaluator._environment_reward_schema(
+            env,
+            reward_mode="sparse",
+            expected_schema={"schema": "unknown"},
+        )
+
+
+def test_explicit_environment_reward_schema_takes_precedence() -> None:
+    explicit = {"schema": "explicit_process_reward_v1"}
+    env = SimpleNamespace(
+        unwrapped=SimpleNamespace(
+            SUPPORTED_REWARD_MODES=["sparse"],
+            grasp_reward_schema=explicit,
+        )
+    )
+
+    schema = evaluator._environment_reward_schema(
+        env,
+        reward_mode="sparse",
+        expected_schema={"schema": "different_checkpoint_schema"},
+    )
+
+    assert schema == explicit
+    assert schema is not explicit
+
+
 def test_tcp_position_accepts_single_environment_numpy_and_torch() -> None:
     numpy_obs = {
         "extra": {

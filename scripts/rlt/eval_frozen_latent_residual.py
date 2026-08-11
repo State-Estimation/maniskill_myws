@@ -17,6 +17,52 @@ sys.path.insert(0, str(ROOT / "src"))
 DEFAULT_STATE_KEYS = ["agent/qpos", "agent/qvel", "extra/tcp_pose"]
 BASE_TRAJECTORY_COLOR = np.asarray([0.08, 0.42, 1.0, 1.0], dtype=np.float32)
 RLT_TRAJECTORY_COLOR = np.asarray([1.0, 0.30, 0.04, 1.0], dtype=np.float32)
+TERMINAL_SUCCESS_SPARSE_REWARD_SCHEMA = {
+    "schema": "terminal_success_sparse_reward_v1",
+    "applies_to_reward_modes": ["sparse"],
+    "grasp_process_reward": 0.0,
+    "task_success_reward": 1.0,
+    "grasp_reward_once_per_episode": False,
+    "milestone_event_key": None,
+}
+
+
+def _assert_checkpoint_environment(
+    requested_env_id: str,
+    runtime_identity: dict,
+) -> None:
+    checkpoint_env_id = runtime_identity.get("env_id")
+    if checkpoint_env_id is not None and requested_env_id != checkpoint_env_id:
+        raise ValueError(
+            f"Checkpoint was trained for {checkpoint_env_id!r}, but evaluation "
+            f"requested {requested_env_id!r}"
+        )
+
+
+def _environment_reward_schema(
+    env,
+    *,
+    reward_mode: str,
+    expected_schema: dict | None,
+) -> dict:
+    base_env = env.unwrapped
+    explicit_schema = getattr(base_env, "grasp_reward_schema", None)
+    if explicit_schema is not None:
+        return dict(explicit_schema)
+
+    terminal_schema = dict(TERMINAL_SUCCESS_SPARSE_REWARD_SCHEMA)
+    if dict(expected_schema or {}) != terminal_schema:
+        raise RuntimeError(
+            "Environment does not expose grasp_reward_schema and the checkpoint "
+            "does not declare the exact terminal-only sparse reward protocol"
+        )
+    supported_modes = set(getattr(base_env, "SUPPORTED_REWARD_MODES", ()))
+    if reward_mode != "sparse" or "sparse" not in supported_modes:
+        raise RuntimeError(
+            "Terminal-only reward fallback requires an environment that explicitly "
+            "supports sparse reward mode"
+        )
+    return terminal_schema
 
 
 def _scalar(value) -> float:
@@ -403,6 +449,10 @@ def main() -> None:
     maniskill_myws.register()
     agent = FrozenLatentResidualAgent.load(args.checkpoint, device=args.device)
     config = agent.config
+    _assert_checkpoint_environment(args.env_id, agent.runtime_identity)
+    expected_reward_schema = agent.runtime_identity.get(
+        "environment_reward_schema"
+    )
     env_kwargs = {
         "obs_mode": args.obs_mode,
         "reward_mode": args.reward_mode,
@@ -423,7 +473,11 @@ def main() -> None:
         expected_sim_backend=args.sim_backend,
         expected_render_backend=args.render_backend,
     )
-    reward_schema = dict(getattr(env.unwrapped, "grasp_reward_schema"))
+    reward_schema = _environment_reward_schema(
+        env,
+        reward_mode=args.reward_mode,
+        expected_schema=expected_reward_schema,
+    )
     if base_env is not None:
         base_backend = require_resolved_backend(
             base_env,
@@ -432,7 +486,11 @@ def main() -> None:
         )
         if base_backend != backend:
             raise RuntimeError("Base and RL environments resolved different backends")
-        if dict(getattr(base_env.unwrapped, "grasp_reward_schema")) != reward_schema:
+        if _environment_reward_schema(
+            base_env,
+            reward_mode=args.reward_mode,
+            expected_schema=expected_reward_schema,
+        ) != reward_schema:
             raise RuntimeError("Base and RL environments have different reward schemas")
 
     action_dim = int(np.prod(env.action_space.shape))

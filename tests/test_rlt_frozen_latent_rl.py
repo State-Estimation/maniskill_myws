@@ -204,6 +204,66 @@ def test_replay_exact_round_trip_preserves_executed_actions(
         )
 
 
+def test_compact_v2_replay_migrates_without_claiming_exact_resume(tmp_path) -> None:
+    config = _config()
+    source = _buffer(config, capacity=4)
+    _add(source, config, residual=0.07, mc_return=1.0, step_id=0)
+    _add(source, config, residual=-0.03, mc_return=0.0, step_id=4)
+    source_batch = source.batch(np.arange(len(source), dtype=np.int64))
+    path = tmp_path / "legacy_v2.npz"
+    np.savez_compressed(
+        path,
+        schema_version=np.int32(2),
+        state_dim=np.int32(config.state_dim),
+        latent_dim=np.int32(config.latent_dim),
+        chunk_len=np.int32(config.chunk_len),
+        action_dim=np.int32(config.action_dim),
+        states=source_batch.states,
+        latents=source.latents[: len(source)],
+        ref_chunks=source_batch.ref_chunks,
+        action_chunks=source_batch.action_chunks,
+        rewards=source_batch.rewards,
+        dones=source_batch.dones,
+        next_states=source_batch.next_states,
+        next_latents=source.next_latents[: len(source)],
+        next_ref_chunks=source_batch.next_ref_chunks,
+        durations=source_batch.durations,
+        step_ids=source_batch.step_ids,
+        mc_returns=source_batch.mc_returns,
+    )
+
+    restored = _buffer(config, capacity=8, seed=999)
+    expected_rng_state = restored._rng.bit_generator.state
+    assert restored.load(path) == 2
+    assert not restored.last_load_was_exact
+    assert restored.last_loaded_snapshot_id is None
+    assert restored.pos == 2
+    assert not restored.full
+    assert restored._rng.bit_generator.state == expected_rng_state
+    assert restored.last_migration_stats == {
+        "source_schema": 2,
+        "source_latent_bins": 1,
+        "target_latent_bins": 1,
+        "raw_rows": 2,
+        "migrated": False,
+        "layout_migrated": True,
+    }
+    restored_batch = restored.batch(np.arange(2, dtype=np.int64))
+    for field in FrozenLatentBatch.__dataclass_fields__:
+        np.testing.assert_array_equal(
+            getattr(restored_batch, field), getattr(source_batch, field)
+        )
+
+    too_small = _buffer(config, capacity=1)
+    with pytest.raises(ValueError, match="does not fit"):
+        too_small.load(path)
+
+    nonempty = _buffer(config, capacity=8)
+    _add(nonempty, config, residual=0.0, mc_return=0.0, step_id=0)
+    with pytest.raises(ValueError, match="requires an empty buffer"):
+        nonempty.load(path)
+
+
 def test_replay_stratification_balances_success_and_failure() -> None:
     config = _config()
     replay = _buffer(config)
@@ -324,6 +384,15 @@ def test_critic_warmup_does_not_update_actor_then_td3_does() -> None:
     )
 
 
+def test_zero_success_bc_weight_uses_legacy_frozen_actor_objective() -> None:
+    config = _config(actor_success_bc_weight=0.0)
+    agent = FrozenLatentResidualAgent(config)
+    metrics = agent.update(_batch(config), update_actor=True)
+    assert metrics["actor_updated"] == 1.0
+    assert metrics["actor_success_bc_loss"] == 0.0
+    assert metrics["actor_success_bc_samples"] == 0.0
+
+
 def test_action_clipping_defines_effective_residual() -> None:
     config = _config()
     agent = FrozenLatentResidualAgent(config)
@@ -363,6 +432,26 @@ def test_checkpoint_round_trip_binds_runtime_identity(tmp_path) -> None:
     with pytest.raises(ValueError, match="runtime identity mismatch"):
         restored.assert_runtime_identity({**identity, "resize": 96})
     assert len(runtime_identity_sha256(identity)) == 64
+
+
+def test_legacy_v3_checkpoint_restores_pre_causal_actor_objective(tmp_path) -> None:
+    agent = FrozenLatentResidualAgent(_config(), runtime_identity=_identity())
+    path = tmp_path / "legacy_v3.pt"
+    agent.save(path)
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload["schema"] = "lightweight_rlt_frozen_pi0_continuous_residual_v3"
+    payload["checkpoint_version"] = 3
+    payload["config"].pop("actor_success_bc_weight")
+    payload["config"].pop("actor_success_bc_min_residual_rms")
+    payload["config"].pop("outcome_success_threshold")
+    torch.save(payload, path)
+
+    restored = FrozenLatentResidualAgent.load(path)
+    assert restored.config.actor_success_bc_weight == 0.0
+    causal_continuation = FrozenLatentResidualAgent.load(
+        path, legacy_actor_success_bc_weight=2.0
+    )
+    assert causal_continuation.config.actor_success_bc_weight == 2.0
 
 
 def test_checkpoint_rejects_removed_policy_branch(tmp_path) -> None:

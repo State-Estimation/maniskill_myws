@@ -109,6 +109,32 @@ def test_independent_online_exploration_can_override_accepted_actor() -> None:
         rng=np.random.default_rng(1),
     )
 
+
+def test_independent_online_exploration_consumes_accepted_context_rng() -> None:
+    independent = np.random.default_rng(7)
+    expected_independent = np.random.default_rng(7)
+    assert not TRAIN._should_explore_online(
+        eligible=True,
+        accepted=True,
+        independent=True,
+        probability=0.0,
+        rng=independent,
+    )
+    expected_independent.random()
+    assert independent.random() == expected_independent.random()
+
+    dependent = np.random.default_rng(7)
+    expected_dependent = np.random.default_rng(7)
+    assert not TRAIN._should_explore_online(
+        eligible=True,
+        accepted=True,
+        independent=False,
+        probability=1.0,
+        rng=dependent,
+    )
+    assert dependent.random() == expected_dependent.random()
+
+
 def test_online_exploration_respects_eligibility() -> None:
     assert not TRAIN._should_explore_online(
         eligible=False,
@@ -116,6 +142,18 @@ def test_online_exploration_respects_eligibility() -> None:
         independent=True,
         probability=1.0,
         rng=np.random.default_rng(2),
+    )
+
+
+def test_legacy_budget_exhaustion_is_opt_in_and_exact() -> None:
+    assert not TRAIN._legacy_budget_exhausted(
+        env_steps=49_999, total_env_steps=50_000, enabled=True
+    )
+    assert TRAIN._legacy_budget_exhausted(
+        env_steps=50_000, total_env_steps=50_000, enabled=True
+    )
+    assert not TRAIN._legacy_budget_exhausted(
+        env_steps=50_000, total_env_steps=50_000, enabled=False
     )
 
 

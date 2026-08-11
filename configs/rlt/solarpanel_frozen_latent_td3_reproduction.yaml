@@ -1,0 +1,133 @@
+schema: solarpanel_frozen_latent_td3_reproduction_v1
+date: 2026-07-30
+objective: >-
+  Reproduce the pre-Causal mean Frozen-Latent TD3 result with the original
+  CPU PhysX runtime, Pi0 mean action-suffix latent, Q-gated online collection,
+  uniform replay sampling, and no successful-residual self-imitation.
+
+runtime:
+  env_id: SolarPanelStatic-v2
+  obs_mode: rgb
+  reward_mode: sparse
+  control_mode: pd_joint_pos
+  sim_backend: physx_cpu
+  render_backend: sapien_cuda:0
+  enhanced_determinism: false
+  server: ws://127.0.0.1:8011
+  chunk_len: 50
+  max_episode_steps: 500
+  resize: 224
+  temporal_latent_bins: 1
+  frozen_latent_protocol: maniskill_frozen_pi0_action_suffix_mean_v1
+
+algorithm:
+  family: frozen_latent_td3
+  actor_initialization: zero_residual
+  critic_initialization: random
+  critic_pretrain_updates: 2000
+  updates_per_chunk: 2
+  batch_size: 128
+  buffer_capacity: 50000
+  online_exploration_independent_of_q: true
+  online_exploration_probability: 0.02
+  replay_sampling: uniform
+  base_control_episode_probability: 0.0
+  success_self_imitation_weight: 0.0
+  conservative_q_weight: 0.10
+  max_interventions_per_episode: 1
+  intervention_cooldown_chunks: 0
+  min_q_advantage: 0.10
+  arm_residual_fraction: 0.06
+  gripper_residual_fraction: 0.10
+  actor_residual_limit: 0.35
+  actor_l2_weight: 0.50
+  actor_smoothness_weight: 0.20
+  mc_loss_weight: 0.50
+
+stage_cq01_50k:
+  seed: 2000
+  total_env_steps: 50000
+  initial_replay: >-
+    outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_conservative_knot_seed1000_20260727/online_replay.npz
+  initial_replay_run_config: >-
+    outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_conservative_knot_seed1000_20260727/run_config.json
+  legacy_replay_schema: 2
+  initial_replay_rows: 954
+  initial_replay_sha256: 22138e2c502ce5fb64a51e5082a4e38f02e5c2386c8e79ef670112c24fd2a5c0
+  output_dir: outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_reproduction
+  historical_reference_result:
+    paired_eval_seeds: 30000-30099
+    base_successes: 65
+    rl_successes: 80
+    paired_gain_percentage_points: 15
+    rescues: 15
+    regressions: 0
+    bootstrap_95ci_percentage_points: [8, 22]
+
+observed_reproduction_2026_07_30:
+  training_wandb_run: ct9svdli
+  evaluation_wandb_run: kw1xeqe3
+  env_steps: 50000
+  actor_updates: 1046
+  paired_eval_seeds: 30000-30099
+  base_successes: 65
+  rl_successes: 65
+  rescues: 1
+  regressions: 1
+  intervened_episodes: 8
+  note: >-
+    The first three episodes match the historical losses and Q metrics to
+    floating-point precision. The first trajectory-length divergence is
+    episode 3 (177 versus 179 steps); closed-loop CUDA numerical differences
+    then compound. This run validates the migration and training contract, but
+    also shows that a fresh Frozen TD3 seed is not guaranteed to recover the
+    historical 80 percent checkpoint.
+
+reproduction_contract:
+  - The OpenPI server must use --frozen-action-latent.
+  - The v2 replay is an initial dataset migration, never an exact resume.
+  - Enable the historical independent epsilon override at every eligible boundary.
+  - Hard-truncate the final episode exactly at total_env_steps.
+  - Do not enable balanced replay sampling.
+  - Set actor success BC weight to zero explicitly.
+  - Use a new output directory and online W&B run for every reproduction.
+  - The later historical 100k run used a legacy semantic resume and is not
+    reproduced by this exact 50k contract.
+
+commands:
+  stage_cq01_50k: >-
+    CUDA_VISIBLE_DEVICES=1 conda run --no-capture-output -n mani_skill
+    python -u scripts/rlt/train_frozen_latent_residual.py
+    --env-id SolarPanelStatic-v2 --obs-mode rgb --reward-mode sparse
+    --control-mode pd_joint_pos --sim-backend physx_cpu
+    --render-backend sapien_cuda:0 --no-enhanced-determinism
+    --server ws://127.0.0.1:8011 --seed 2000 --device cuda:0
+    --chunk-len 50 --max-episode-steps 500 --total-env-steps 50000
+    --buffer-capacity 50000 --batch-size 128
+    --initial-replay outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_conservative_knot_seed1000_20260727/online_replay.npz
+    --initial-replay-run-config outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_conservative_knot_seed1000_20260727/run_config.json
+    --initial-critic-updates 2000 --updates-per-chunk 2
+    --temporal-latent-bins 1 --online-explore-probability 0.02
+    --independent-online-exploration --base-control-episode-probability 0
+    --replay-nonzero-fraction 0 --actor-success-bc-weight 0
+    --conservative-q-weight 0.10 --min-q-advantage 0.10
+    --max-online-intervention-chunks-per-episode 1
+    --intervention-cooldown-chunks 0 --legacy-exact-budget-truncation
+    --wandb-enabled --wandb-new-run --wandb-project maniskill-myws-rlt
+    --wandb-run-name solarpanel-frozen-latent-cq01-v2-exact-reproduction
+    --wandb-tags frozen-reproduction v2-migration legacy-exact mean-latent td3 cpu-physx
+    --output-dir outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_reproduction
+  paired_eval_100: >-
+    CUDA_VISIBLE_DEVICES=1 conda run --no-capture-output -n mani_skill
+    python -u scripts/rlt/eval_frozen_latent_residual.py
+    --checkpoint outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_reproduction/frozen_latent_residual.pt
+    --env-id SolarPanelStatic-v2 --obs-mode rgb --reward-mode sparse
+    --control-mode pd_joint_pos --sim-backend physx_cpu
+    --render-backend sapien_cuda:0 --no-enhanced-determinism
+    --server ws://127.0.0.1:8011 --device cuda:0
+    --start-seed 30000 --num-seeds 100 --min-q-advantage 0.10
+    --max-intervention-chunks-per-episode 1 --intervention-cooldown-chunks 0
+    --wandb-enabled --wandb-project maniskill-myws-rlt
+    --wandb-run-name solarpanel-frozen-latent-cq01-reproduction-eval
+    --wandb-tags frozen-reproduction paired-eval
+    --output-dir outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3_cq01_reproduction/eval_seed30000_n100

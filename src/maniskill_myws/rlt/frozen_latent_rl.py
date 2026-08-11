@@ -254,7 +254,7 @@ class FrozenLatentBatch:
 
 
 class FrozenLatentReplayBuffer:
-    """Exact executed-action replay, schema v3 (mean) or v4 (temporal)."""
+    """Exact executed-action replay with legacy v2 migration support."""
 
     def __init__(
         self,
@@ -527,21 +527,36 @@ class FrozenLatentReplayBuffer:
         temporary.replace(path)
 
     def load(self, path: str | Path) -> int:
-        """Load v3/v4 replay, migrating mean rows to temporal rows when needed."""
+        """Load replay, migrating compact v2 and mean rows when needed."""
 
         self.last_load_was_exact = False
         self.last_loaded_snapshot_id = None
         self.last_migration_stats = None
         with np.load(path, allow_pickle=False) as data:
             source_schema = int(np.asarray(data["schema_version"]))
-            if source_schema not in {3, 4}:
+            if source_schema not in {2, 3, 4}:
                 raise ValueError("Unsupported frozen-latent replay schema")
             source_size = int(np.asarray(data["states"]).shape[0])
-            source_capacity = int(np.asarray(data["capacity"]))
-            source_pos = int(np.asarray(data["pos"]))
-            source_full = bool(np.asarray(data["full"]))
+            legacy_compact = source_schema == 2
+            source_capacity = (
+                source_size
+                if legacy_compact
+                else int(np.asarray(data["capacity"]))
+            )
+            source_pos = (
+                source_size
+                if legacy_compact
+                else int(np.asarray(data["pos"]))
+            )
+            source_full = (
+                False
+                if legacy_compact
+                else bool(np.asarray(data["full"]))
+            )
             source_latent_bins = (
-                1 if source_schema == 3 else int(np.asarray(data["latent_bins"]))
+                1
+                if source_schema in {2, 3}
+                else int(np.asarray(data["latent_bins"]))
             )
             if source_latent_bins not in {1, 6}:
                 raise ValueError("Source replay must contain one mean or six temporal rows")
@@ -553,11 +568,19 @@ class FrozenLatentReplayBuffer:
                 raise ValueError("Replay chunk_len does not match model")
             if int(np.asarray(data["action_dim"])) != self.action_dim:
                 raise ValueError("Replay action_dim does not match model")
-            if source_size > source_capacity or source_pos < 0 or source_pos >= source_capacity:
-                raise ValueError("Replay capacity/position metadata is invalid")
-            expected = source_capacity if source_full else source_pos
-            if source_size != expected:
-                raise ValueError("Replay state and transition count disagree")
+            if legacy_compact:
+                if source_size > self.capacity:
+                    raise ValueError("Legacy replay does not fit in target capacity")
+            else:
+                if (
+                    source_size > source_capacity
+                    or source_pos < 0
+                    or source_pos >= source_capacity
+                ):
+                    raise ValueError("Replay capacity/position metadata is invalid")
+                expected = source_capacity if source_full else source_pos
+                if source_size != expected:
+                    raise ValueError("Replay state and transition count disagree")
             names = (
                 "states", "latents", "ref_chunks", "action_chunks", "rewards",
                 "dones", "next_states", "next_latents", "next_ref_chunks",
@@ -654,6 +677,7 @@ class FrozenLatentReplayBuffer:
             expected_schema = 3 if self.latent_bins == 1 else 4
             exact_layout = bool(
                 not migrating
+                and not legacy_compact
                 and source_schema == expected_schema
                 and source_capacity == self.capacity
                 and "rng_state" in data.files
@@ -675,6 +699,8 @@ class FrozenLatentReplayBuffer:
                 )
                 self.last_load_was_exact = True
                 return source_size
+            if len(self):
+                raise ValueError("Non-exact replay migration requires an empty buffer")
             if source_full:
                 order = np.concatenate(
                     (np.arange(source_pos, source_size), np.arange(0, source_pos))
@@ -691,8 +717,6 @@ class FrozenLatentReplayBuffer:
                 source_next_latents = np.repeat(source_next_latents[:, None, :], 6, axis=1)
             if source_size > self.capacity:
                 raise ValueError("Replay does not fit in target capacity")
-            if not self.full and len(self) and migrating:
-                raise ValueError("Migrated replay must load into an empty buffer")
             for name, target in (
                 ("states", self.states), ("ref_chunks", self.ref_chunks),
                 ("action_chunks", self.action_chunks), ("rewards", self.rewards),
@@ -712,6 +736,8 @@ class FrozenLatentReplayBuffer:
                 "raw_rows": source_size,
                 "migrated": migrating,
             }
+            if legacy_compact:
+                self.last_migration_stats["layout_migrated"] = True
             return source_size
 
 
@@ -1138,38 +1164,44 @@ class FrozenLatentResidualAgent:
                 if self.config.chunk_len > 1
                 else predicted.new_zeros(())
             )
-            time = torch.arange(self.config.chunk_len, device=self.device).view(1, -1)
-            valid = (time < duration.view(-1, 1)).unsqueeze(-1)
-            valid_count = (
-                valid.to(predicted.dtype).sum(dim=(1, 2)).clamp_min(1.0)
-                * float(self.config.action_dim)
-            )
-            per_sample_bc = (
-                (effective - residual).square() * valid.to(predicted.dtype)
-            ).sum(dim=(1, 2)) / valid_count
-            executed_rms = torch.sqrt(
-                (residual.square() * valid.to(residual.dtype)).sum(dim=(1, 2))
-                / valid_count
-            )
-            success_anchor = (
-                finite_mc
-                & (mc_return > self.config.outcome_success_threshold)
-                & (
-                    executed_rms
-                    > self.config.actor_success_bc_min_residual_rms
-                )
-            )
-            success_bc = (
-                per_sample_bc[success_anchor].mean()
-                if bool(success_anchor.any())
-                else actor_q.new_zeros(())
-            )
             actor_loss = (
                 -actor_q
                 + self.config.actor_l2_weight * l2
                 + self.config.actor_smoothness_weight * smoothness
-                + self.config.actor_success_bc_weight * success_bc
             )
+            success_bc = actor_q.new_zeros(())
+            success_bc_samples = 0
+            if self.config.actor_success_bc_weight > 0.0:
+                time = torch.arange(self.config.chunk_len, device=self.device).view(1, -1)
+                valid = (time < duration.view(-1, 1)).unsqueeze(-1)
+                valid_count = (
+                    valid.to(predicted.dtype).sum(dim=(1, 2)).clamp_min(1.0)
+                    * float(self.config.action_dim)
+                )
+                per_sample_bc = (
+                    (effective - residual).square() * valid.to(predicted.dtype)
+                ).sum(dim=(1, 2)) / valid_count
+                executed_rms = torch.sqrt(
+                    (residual.square() * valid.to(residual.dtype)).sum(dim=(1, 2))
+                    / valid_count
+                )
+                success_anchor = (
+                    finite_mc
+                    & (mc_return > self.config.outcome_success_threshold)
+                    & (
+                        executed_rms
+                        > self.config.actor_success_bc_min_residual_rms
+                    )
+                )
+                success_bc = (
+                    per_sample_bc[success_anchor].mean()
+                    if bool(success_anchor.any())
+                    else actor_q.new_zeros(())
+                )
+                success_bc_samples = int(success_anchor.sum().detach().cpu())
+                actor_loss = (
+                    actor_loss + self.config.actor_success_bc_weight * success_bc
+                )
             self.actor_opt.zero_grad(set_to_none=True)
             actor_loss.backward()
             if self.config.grad_clip_norm > 0:
@@ -1185,7 +1217,7 @@ class FrozenLatentResidualAgent:
                 actor_l2=float(l2.detach().cpu()),
                 actor_smoothness=float(smoothness.detach().cpu()),
                 actor_success_bc_loss=float(success_bc.detach().cpu()),
-                actor_success_bc_samples=float(success_anchor.sum().detach().cpu()),
+                actor_success_bc_samples=float(success_bc_samples),
             )
         metrics.update(
             total_updates=float(self.total_updates),
@@ -1396,6 +1428,7 @@ class FrozenLatentResidualAgent:
         path: str | Path,
         *,
         device: str | torch.device = "cpu",
+        legacy_actor_success_bc_weight: float = 0.0,
     ) -> FrozenLatentResidualAgent:
         payload = torch.load(path, map_location=device, weights_only=False)
         schema = payload.get("schema")
@@ -1407,6 +1440,11 @@ class FrozenLatentResidualAgent:
         if (schema, version) not in accepted:
             raise ValueError("Checkpoint is not a maintained frozen-Pi0 residual agent")
         raw_config = dict(payload["config"])
+        if version == 3:
+            raw_config.setdefault(
+                "actor_success_bc_weight",
+                float(legacy_actor_success_bc_weight),
+            )
         config_fields = {field.name for field in fields(FrozenLatentRLConfig)}
         # Existing v4 checkpoints carry the retired outcome hyperparameters.
         # They are metadata only and must not instantiate a second critic.

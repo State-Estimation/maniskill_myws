@@ -118,6 +118,30 @@ identity, and runtime identity before execution.
 
 ## Training commands
 
+The pre-Causal Frozen-Latent TD3 path is reproducible from
+`configs/rlt/solarpanel_frozen_latent_td3_reproduction.yaml`. It restores the
+original CQ0.1 objective: mean latent, zero residual initialization, uniform
+replay, the historical 2% independent epsilon override, no successful-residual
+self-imitation, and an exact hard stop at 50,000 environment steps.
+Legacy schema-v2 replay is accepted only as a non-exact initial dataset; it is
+validated and migrated into the current replay layout without inventing RNG or
+snapshot state. The configuration contains the 50k training command and paired
+100-seed evaluation command.
+
+The historical reference is Base `65/100` versus Frozen TD3 `80/100` on seeds
+`30000--30099` (`+15pp`, 15 rescues, 0 regressions). The later historical 100k
+run used a legacy semantic resume that intentionally discarded replay/trainer
+RNG state, so it is not presented as an exact-resume reproduction here.
+
+The 2026-07-30 clean rerun completed exactly 50,000 steps and verified the v2
+migration metadata, but evaluated at Base `65/100` versus Frozen TD3 `65/100`
+(1 rescue, 1 regression, only 8 interventions). Its first three episodes match
+the historical training metrics to floating-point precision; the first rollout
+length divergence occurs at episode 3 (`177` versus `179` steps), after which
+closed-loop CUDA differences compound. Therefore the historical checkpoint is
+the reproduced Frozen result, while a fresh stochastic retrain should not be
+claimed to deterministically reproduce its `80/100` outcome.
+
 The Causal continuation is defined in
 `configs/rlt/solarpanel_goal95_causal_td3_stage50k.yaml`. A typical invocation
 is:
@@ -193,8 +217,8 @@ checked step by step for identical state and Pi0 chunks.
 - `src/maniskill_myws/rlt/policies.py`
 - `src/maniskill_myws/rlt/backend.py`, `reset.py`, `state.py`
 - `configs/rlt/solarpanel_goal95_causal_td3_stage50k.yaml`
+- `configs/rlt/solarpanel_frozen_latent_td3_reproduction.yaml`
 - `configs/rlt/solarpanel_goal95_temporal_latent_stage100k.yaml`
 
-The parent checkpoint paths and results needed to reproduce either continuation
-are recorded in these two configuration files; historical experiment configs
-are intentionally not maintained.
+The parent checkpoint paths and results needed to reproduce each maintained
+path are recorded in these configuration files.
