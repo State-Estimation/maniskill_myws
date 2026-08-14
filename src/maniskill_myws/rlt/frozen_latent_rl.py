@@ -153,6 +153,7 @@ class FrozenLatentRLConfig:
     outcome_success_threshold: float = 0.5
     actor_success_bc_weight: float = 2.0
     actor_success_bc_min_residual_rms: float = 1e-4
+    actor_success_bc_min_q_advantage: float = 0.0
     exploration_knots: int = 6
     grad_clip_norm: float = 1.0
     action_low: tuple[float, ...] | None = None
@@ -210,6 +211,7 @@ class FrozenLatentRLConfig:
             self.conservative_random_std,
             self.actor_success_bc_weight,
             self.actor_success_bc_min_residual_rms,
+            self.actor_success_bc_min_q_advantage,
             self.grad_clip_norm,
         ) < 0.0:
             raise ValueError("Loss weights must be non-negative")
@@ -1171,6 +1173,7 @@ class FrozenLatentResidualAgent:
             )
             success_bc = actor_q.new_zeros(())
             success_bc_samples = 0
+            success_bc_advantage = actor_q.new_zeros(())
             if self.config.actor_success_bc_weight > 0.0:
                 time = torch.arange(self.config.chunk_len, device=self.device).view(1, -1)
                 valid = (time < duration.view(-1, 1)).unsqueeze(-1)
@@ -1193,6 +1196,23 @@ class FrozenLatentResidualAgent:
                         > self.config.actor_success_bc_min_residual_rms
                     )
                 )
+                if self.config.actor_success_bc_min_q_advantage > 0.0:
+                    with torch.no_grad():
+                        executed_q = self.critic(
+                            critic_actor_context, residual
+                        ).min(dim=-1).values
+                        zero_q = self.critic(
+                            critic_actor_context, torch.zeros_like(residual)
+                        ).min(dim=-1).values
+                        executed_advantage = executed_q - zero_q
+                    success_anchor &= (
+                        executed_advantage
+                        >= self.config.actor_success_bc_min_q_advantage
+                    )
+                    if bool(success_anchor.any()):
+                        success_bc_advantage = executed_advantage[
+                            success_anchor
+                        ].mean()
                 success_bc = (
                     per_sample_bc[success_anchor].mean()
                     if bool(success_anchor.any())
@@ -1218,6 +1238,9 @@ class FrozenLatentResidualAgent:
                 actor_smoothness=float(smoothness.detach().cpu()),
                 actor_success_bc_loss=float(success_bc.detach().cpu()),
                 actor_success_bc_samples=float(success_bc_samples),
+                actor_success_bc_advantage=float(
+                    success_bc_advantage.detach().cpu()
+                ),
             )
         metrics.update(
             total_updates=float(self.total_updates),

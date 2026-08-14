@@ -393,6 +393,16 @@ def test_zero_success_bc_weight_uses_legacy_frozen_actor_objective() -> None:
     assert metrics["actor_success_bc_samples"] == 0.0
 
 
+def test_success_bc_can_filter_non_advantageous_residuals() -> None:
+    config = _config(actor_success_bc_min_q_advantage=1e6)
+    agent = FrozenLatentResidualAgent(config)
+    metrics = agent.update(_batch(config), update_actor=True)
+    assert metrics["actor_updated"] == 1.0
+    assert metrics["actor_success_bc_samples"] == 0.0
+    assert metrics["actor_success_bc_loss"] == 0.0
+    assert metrics["actor_success_bc_advantage"] == 0.0
+
+
 def test_action_clipping_defines_effective_residual() -> None:
     config = _config()
     agent = FrozenLatentResidualAgent(config)

@@ -1,0 +1,59 @@
+schema: solarpanel_frozen_latent_advantage_bc_replication_wandb_v1
+objective: >-
+  Replicate the seed11000 frozen mean-latent Advantage-BC method from a fresh
+  RL initialization on an independent seed, with a longer 200k-step budget.
+  Pi0 remains frozen and no RL checkpoint or replay is loaded.
+
+initialization:
+  rl_checkpoint: null
+  replay: null
+  optimizer_state: null
+  actor: random_with_zero_output_head
+  critic: random
+  context: random
+
+representation:
+  frozen_latent_protocol: maniskill_frozen_pi0_action_suffix_mean_v1
+  temporal_bins: 1
+  independent_vision_encoder: false
+
+gate:
+  selector: conservative_twin_q
+  min_q_advantage: 0.08
+  max_interventions_per_episode: 2
+  cooldown_chunks: 1
+
+training:
+  seed: 15000
+  total_env_steps: 200000
+  critic_warmup_updates: 2000
+  updates_per_chunk: 2
+  online_explore_probability: 0.35
+  independent_online_exploration: true
+  exploration_std_start: 0.30
+  exploration_std_end: 0.30
+  base_control_episode_probability: 0.20
+  replay_nonzero_fraction: 0.50
+  replay_nonzero_success_fraction: 0.50
+  actor_success_bc_weight: 2.0
+  actor_success_bc_min_q_advantage: 0.05
+  conservative_q_weight: 0.10
+
+evaluation:
+  development_start_seed: 69000
+  development_num_seeds: 100
+  final_start_seed: 70000
+  final_num_seeds: 100
+
+wandb:
+  enabled: true
+  new_run: true
+  project: maniskill-frozen-latent-td3
+  run_name: frozen_mean_advantage_bc_seed15000_scratch200k
+  tags:
+    - frozen-latent
+    - advantage-bc
+    - scratch
+    - replication
+
+output_dir: outputs/rlt/SolarPanelStatic-v2_advantage_bc_seed15000_scratch200k_wandb

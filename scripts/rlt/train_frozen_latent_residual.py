@@ -535,6 +535,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--outcome-success-threshold", type=float, default=0.5)
     parser.add_argument("--actor-success-bc-weight", type=float, default=2.0)
     parser.add_argument("--actor-success-bc-min-residual-rms", type=float, default=1e-4)
+    parser.add_argument("--actor-success-bc-min-q-advantage", type=float, default=0.0)
     parser.add_argument(
         "--output-dir", default="outputs/rlt/SolarPanelStatic-v2_frozen_latent_td3"
     )
@@ -842,6 +843,7 @@ def main() -> None:
         outcome_success_threshold=args.outcome_success_threshold,
         actor_success_bc_weight=args.actor_success_bc_weight,
         actor_success_bc_min_residual_rms=args.actor_success_bc_min_residual_rms,
+        actor_success_bc_min_q_advantage=args.actor_success_bc_min_q_advantage,
         action_low=tuple(float(value) for value in low),
         action_high=tuple(float(value) for value in high),
     )
