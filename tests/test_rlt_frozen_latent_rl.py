@@ -40,9 +40,7 @@ def _config(**overrides) -> FrozenLatentRLConfig:
 
 
 def _latent_shape(config: FrozenLatentRLConfig) -> tuple[int, ...]:
-    if config.latent_storage_rows == 1:
-        return (config.latent_dim,)
-    return (config.latent_storage_rows, config.latent_dim)
+    return (config.latent_dim,)
 
 
 def _batch(config: FrozenLatentRLConfig, size: int = 8) -> FrozenLatentBatch:
@@ -75,7 +73,6 @@ def _buffer(config: FrozenLatentRLConfig, capacity: int = 8, seed: int = 7):
         capacity,
         state_dim=config.state_dim,
         latent_dim=config.latent_dim,
-        latent_bins=config.latent_storage_rows,
         chunk_len=config.chunk_len,
         action_dim=config.action_dim,
         seed=seed,
@@ -113,7 +110,7 @@ def _add(
     )
 
 
-def _identity(*, temporal_latent_bins: int = 1) -> dict:
+def _identity() -> dict:
     return make_runtime_identity(
         env_id="Test-v0",
         obs_mode="rgb",
@@ -130,15 +127,10 @@ def _identity(*, temporal_latent_bins: int = 1) -> dict:
         chunk_len=4,
         max_episode_steps=20,
         openpi_policy_identity_sha256="a" * 64,
-        temporal_latent_bins=temporal_latent_bins,
     )
 
 
-def test_config_supports_only_mean_or_five_temporal_bins() -> None:
-    assert _config().latent_storage_rows == 1
-    assert _config(temporal_latent_bins=5).latent_storage_rows == 6
-    with pytest.raises(ValueError, match="temporal_latent_bins"):
-        _config(temporal_latent_bins=3)
+def test_config_requires_eight_action_dimensions() -> None:
     with pytest.raises(ValueError, match="action_dim=8"):
         _config(action_dim=7, action_low=(-1.0,) * 7, action_high=(1.0,) * 7)
 
@@ -181,11 +173,8 @@ def test_actor_expands_smooth_knots_across_full_chunk() -> None:
     assert np.max(np.abs(residual)) <= config.actor_residual_limit
 
 
-@pytest.mark.parametrize("temporal_bins", [1, 5])
-def test_replay_exact_round_trip_preserves_executed_actions(
-    tmp_path, temporal_bins: int
-) -> None:
-    config = _config(temporal_latent_bins=temporal_bins)
+def test_replay_exact_round_trip_preserves_executed_actions(tmp_path) -> None:
+    config = _config()
     replay = _buffer(config, capacity=4)
     _add(replay, config, residual=0.07, mc_return=1.0, step_id=0)
     _add(replay, config, residual=-0.03, mc_return=0.0, step_id=4)
@@ -202,66 +191,6 @@ def test_replay_exact_round_trip_preserves_executed_actions(
         np.testing.assert_array_equal(
             getattr(actual_sample, field), getattr(expected_sample, field)
         )
-
-
-def test_compact_v2_replay_migrates_without_claiming_exact_resume(tmp_path) -> None:
-    config = _config()
-    source = _buffer(config, capacity=4)
-    _add(source, config, residual=0.07, mc_return=1.0, step_id=0)
-    _add(source, config, residual=-0.03, mc_return=0.0, step_id=4)
-    source_batch = source.batch(np.arange(len(source), dtype=np.int64))
-    path = tmp_path / "legacy_v2.npz"
-    np.savez_compressed(
-        path,
-        schema_version=np.int32(2),
-        state_dim=np.int32(config.state_dim),
-        latent_dim=np.int32(config.latent_dim),
-        chunk_len=np.int32(config.chunk_len),
-        action_dim=np.int32(config.action_dim),
-        states=source_batch.states,
-        latents=source.latents[: len(source)],
-        ref_chunks=source_batch.ref_chunks,
-        action_chunks=source_batch.action_chunks,
-        rewards=source_batch.rewards,
-        dones=source_batch.dones,
-        next_states=source_batch.next_states,
-        next_latents=source.next_latents[: len(source)],
-        next_ref_chunks=source_batch.next_ref_chunks,
-        durations=source_batch.durations,
-        step_ids=source_batch.step_ids,
-        mc_returns=source_batch.mc_returns,
-    )
-
-    restored = _buffer(config, capacity=8, seed=999)
-    expected_rng_state = restored._rng.bit_generator.state
-    assert restored.load(path) == 2
-    assert not restored.last_load_was_exact
-    assert restored.last_loaded_snapshot_id is None
-    assert restored.pos == 2
-    assert not restored.full
-    assert restored._rng.bit_generator.state == expected_rng_state
-    assert restored.last_migration_stats == {
-        "source_schema": 2,
-        "source_latent_bins": 1,
-        "target_latent_bins": 1,
-        "raw_rows": 2,
-        "migrated": False,
-        "layout_migrated": True,
-    }
-    restored_batch = restored.batch(np.arange(2, dtype=np.int64))
-    for field in FrozenLatentBatch.__dataclass_fields__:
-        np.testing.assert_array_equal(
-            getattr(restored_batch, field), getattr(source_batch, field)
-        )
-
-    too_small = _buffer(config, capacity=1)
-    with pytest.raises(ValueError, match="does not fit"):
-        too_small.load(path)
-
-    nonempty = _buffer(config, capacity=8)
-    _add(nonempty, config, residual=0.0, mc_return=0.0, step_id=0)
-    with pytest.raises(ValueError, match="requires an empty buffer"):
-        nonempty.load(path)
 
 
 def test_replay_stratification_balances_success_and_failure() -> None:
@@ -291,78 +220,6 @@ def test_replay_stratification_balances_success_and_failure() -> None:
     assert np.count_nonzero(nonzero & ~successful) == 2
 
 
-def test_mean_replay_migrates_to_zero_information_temporal_rows(tmp_path) -> None:
-    mean_config = _config()
-    source = _buffer(mean_config, capacity=4)
-    _add(source, mean_config, residual=0.04, mc_return=1.0, step_id=0)
-    path = tmp_path / "mean.npz"
-    source.save(path)
-
-    temporal_config = _config(temporal_latent_bins=5)
-    target = _buffer(temporal_config, capacity=4)
-    assert target.load(path) == 1
-    assert not target.last_load_was_exact
-    assert target.last_migration_stats == {
-        "source_schema": 3,
-        "source_latent_bins": 1,
-        "target_latent_bins": 6,
-        "raw_rows": 1,
-        "migrated": True,
-    }
-    np.testing.assert_array_equal(
-        target.latents[0], np.repeat(target.latents[0, :1], 6, axis=0)
-    )
-
-
-def test_temporal_upgrade_is_exact_at_zero_gate(tmp_path) -> None:
-    torch.manual_seed(3)
-    source = FrozenLatentResidualAgent(
-        _config(), runtime_identity=_identity()
-    )
-    with torch.no_grad():
-        output = source.actor.trunk[-1]
-        assert isinstance(output, torch.nn.Linear)
-        output.bias[0] = 0.2
-        source.sync_target_actor()
-    path = tmp_path / "mean.pt"
-    source.save(path)
-    temporal = FrozenLatentResidualAgent.upgrade_from_mean_checkpoint(
-        path,
-        runtime_identity=_identity(temporal_latent_bins=5),
-        temporal_latent_bins=5,
-        temporal_adapter_dim=8,
-    )
-
-    rng = np.random.default_rng(8)
-    state = rng.normal(size=source.config.state_dim).astype(np.float32)
-    mean = rng.normal(size=source.config.latent_dim).astype(np.float32)
-    ref = rng.uniform(
-        -0.5, 0.5, (source.config.chunk_len, source.config.action_dim)
-    ).astype(np.float32)
-    repeated = np.repeat(mean[None], 6, axis=0)
-    source_residual = source.select_residual(
-        state, mean, ref, step_id=4, deterministic=True
-    )
-    temporal_residual = temporal.select_residual(
-        state, repeated, ref, step_id=4, deterministic=True
-    )
-    np.testing.assert_array_equal(temporal_residual, source_residual)
-    assert float(temporal.context.temporal_gate.detach()) == 0.0
-
-
-def test_temporal_gate_can_learn_ordered_token_signal() -> None:
-    config = _config(temporal_latent_bins=5, temporal_adapter_dim=8)
-    agent = FrozenLatentResidualAgent(config)
-    batch = _batch(config)
-    batch.latents[:, 1:] = np.linspace(
-        -1.0, 1.0, 5, dtype=np.float32
-    )[None, :, None]
-    metrics = agent.update(batch, update_actor=False)
-    assert np.isfinite(metrics["critic_loss"])
-    assert agent.context.temporal_gate.grad is not None
-    assert torch.isfinite(agent.context.temporal_gate.grad)
-
-
 def test_critic_warmup_does_not_update_actor_then_td3_does() -> None:
     config = _config()
     agent = FrozenLatentResidualAgent(config)
@@ -384,7 +241,7 @@ def test_critic_warmup_does_not_update_actor_then_td3_does() -> None:
     )
 
 
-def test_zero_success_bc_weight_uses_legacy_frozen_actor_objective() -> None:
+def test_zero_success_bc_weight_disables_self_imitation() -> None:
     config = _config(actor_success_bc_weight=0.0)
     agent = FrozenLatentResidualAgent(config)
     metrics = agent.update(_batch(config), update_actor=True)
@@ -444,27 +301,7 @@ def test_checkpoint_round_trip_binds_runtime_identity(tmp_path) -> None:
     assert len(runtime_identity_sha256(identity)) == 64
 
 
-def test_legacy_v3_checkpoint_restores_pre_causal_actor_objective(tmp_path) -> None:
-    agent = FrozenLatentResidualAgent(_config(), runtime_identity=_identity())
-    path = tmp_path / "legacy_v3.pt"
-    agent.save(path)
-    payload = torch.load(path, map_location="cpu", weights_only=False)
-    payload["schema"] = "lightweight_rlt_frozen_pi0_continuous_residual_v3"
-    payload["checkpoint_version"] = 3
-    payload["config"].pop("actor_success_bc_weight")
-    payload["config"].pop("actor_success_bc_min_residual_rms")
-    payload["config"].pop("outcome_success_threshold")
-    torch.save(payload, path)
-
-    restored = FrozenLatentResidualAgent.load(path)
-    assert restored.config.actor_success_bc_weight == 0.0
-    causal_continuation = FrozenLatentResidualAgent.load(
-        path, legacy_actor_success_bc_weight=2.0
-    )
-    assert causal_continuation.config.actor_success_bc_weight == 2.0
-
-
-def test_checkpoint_rejects_removed_policy_branch(tmp_path) -> None:
+def test_checkpoint_rejects_unknown_config_fields(tmp_path) -> None:
     agent = FrozenLatentResidualAgent(_config(), runtime_identity=_identity())
     path = tmp_path / "agent.pt"
     agent.save(path)
@@ -472,7 +309,7 @@ def test_checkpoint_rejects_removed_policy_branch(tmp_path) -> None:
     assert payload["schema"] == FROZEN_LATENT_CHECKPOINT_SCHEMA
     payload["config"] = {**asdict(agent.config), "latent_mode_count": 3}
     torch.save(payload, path)
-    with pytest.raises(ValueError, match="removed policy branch"):
+    with pytest.raises(ValueError, match="unsupported fields"):
         FrozenLatentResidualAgent.load(path)
 
 

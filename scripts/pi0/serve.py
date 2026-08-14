@@ -36,11 +36,6 @@ _INFERENCE_SEED_CAPABILITY = "maniskill_deterministic_inference_seed_v1"
 _FROZEN_LATENT_PROTOCOL = "maniskill_frozen_pi0_action_suffix_mean_v1"
 _FROZEN_LATENT_KEY = "frozen_pi0_latent"
 _FROZEN_LATENT_DIM = 1024
-_FROZEN_TEMPORAL_LATENT_PROTOCOL = "maniskill_frozen_pi0_action_suffix_temporal_bins_v1"
-_FROZEN_TEMPORAL_LATENT_KEY = "frozen_pi0_temporal_latent"
-_FROZEN_TEMPORAL_LATENT_BINS = 5
-_FROZEN_TEMPORAL_LATENT_ACTION_HORIZON = 50
-_FROZEN_TEMPORAL_LATENT_BIN_WIDTH = 10
 _CONTENT_HASH_SCHEMA = b"maniskill_policy_content_tree_sha256_v1\0"
 _HASH_BLOCK_SIZE = 8 * 1024 * 1024
 
@@ -389,14 +384,6 @@ def main() -> None:
             "alongside each action chunk"
         ),
     )
-    p.add_argument(
-        "--frozen-action-temporal-latent",
-        action="store_true",
-        help=(
-            "also return five ordered temporal pools of the final-denoise Pi0 "
-            "action-suffix hidden tokens; implies --frozen-action-latent"
-        ),
-    )
     # XLA safety knobs (must be applied before importing openpi/JAX).
     p.add_argument("--xla-safe", action="store_true", help="set conservative XLA_FLAGS to reduce GPU autotuning issues")
     p.add_argument("--xla-flags", type=str, default=None, help='append to XLA_FLAGS (e.g. "--xla_gpu_autotune_level=0")')
@@ -467,9 +454,7 @@ def main() -> None:
         )
 
     cfg = openpi_config.get_config(args.config)
-    frozen_action_latent = bool(
-        args.frozen_action_latent or args.frozen_action_temporal_latent
-    )
+    frozen_action_latent = bool(args.frozen_action_latent)
     if frozen_action_latent:
         action_expert_variant = getattr(cfg.model, "action_expert_variant", None)
         if action_expert_variant is None:
@@ -482,14 +467,6 @@ def main() -> None:
                 "Frozen action latent protocol dimension mismatch: "
                 f"action expert {action_expert_variant!r} has width "
                 f"{actual_latent_dim}, expected {_FROZEN_LATENT_DIM}"
-            )
-    if args.frozen_action_temporal_latent:
-        actual_action_horizon = int(cfg.model.action_horizon)
-        if actual_action_horizon != _FROZEN_TEMPORAL_LATENT_ACTION_HORIZON:
-            raise ValueError(
-                "Frozen temporal latent protocol requires action_horizon="
-                f"{_FROZEN_TEMPORAL_LATENT_ACTION_HORIZON}, got "
-                f"{actual_action_horizon}"
             )
     inferred_asset_id = _infer_asset_id_from_checkpoint(checkpoint_dir)
     repo_id = args.repo_id or inferred_asset_id
@@ -510,7 +487,6 @@ def main() -> None:
         default_prompt=args.default_prompt,
         norm_stats=norm_stats,
         return_frozen_action_latent=frozen_action_latent,
-        return_frozen_action_temporal_latent=args.frozen_action_temporal_latent,
     )
     _assert_content_unchanged(checkpoint_identity)
     if external_norm_stats_identity is not None:
@@ -542,24 +518,6 @@ def main() -> None:
             frozen_latent_dtype="float32",
             frozen_latent_source="pi0_final_denoise_action_suffix_tokens",
             frozen_latent_pooling="mean_over_action_horizon",
-        )
-    if args.frozen_action_temporal_latent:
-        policy_metadata.update(
-            frozen_temporal_latent_protocol=_FROZEN_TEMPORAL_LATENT_PROTOCOL,
-            frozen_temporal_latent_key=_FROZEN_TEMPORAL_LATENT_KEY,
-            frozen_temporal_latent_shape=[
-                _FROZEN_TEMPORAL_LATENT_BINS,
-                _FROZEN_LATENT_DIM,
-            ],
-            frozen_temporal_latent_dtype="float32",
-            frozen_temporal_latent_source="pi0_final_denoise_action_suffix_tokens",
-            frozen_temporal_latent_pooling="ordered_equal_contiguous_bins",
-            frozen_temporal_latent_action_horizon=(
-                _FROZEN_TEMPORAL_LATENT_ACTION_HORIZON
-            ),
-            frozen_temporal_latent_bin_width=_FROZEN_TEMPORAL_LATENT_BIN_WIDTH,
-            frozen_temporal_latent_parent_protocol=_FROZEN_LATENT_PROTOCOL,
-            frozen_temporal_latent_parent_key=_FROZEN_LATENT_KEY,
         )
     policy = _request_seeded_policy(policy, jax)
     if args.record:

@@ -1,19 +1,8 @@
-"""Minimal frozen-Pi0 continuous residual TD3 implementation.
-
-The maintained path has two representations only:
-
-* schema v3: one frozen global action-suffix mean latent;
-* schema v4: the exact global mean followed by five ordered temporal bins.
-
-The Pi0 policy stays frozen.  TD3 proposes one smooth residual for the whole
-action chunk and a conservative twin-Q comparison decides whether it is used.
-This module deliberately has no VL-prefix branch, candidate/options, latent
-modes, outcome classifier, or Markov intervention-conditioned critic.
-"""
+"""Mean frozen-Pi0-latent Advantage-BC residual TD3."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, dataclass, fields
 import copy
 import hashlib
 import json
@@ -29,15 +18,8 @@ import torch.nn.functional as F
 
 FROZEN_LATENT_PROTOCOL = "maniskill_frozen_pi0_action_suffix_mean_v1"
 FROZEN_LATENT_DIM = 1024
-FROZEN_TEMPORAL_LATENT_PROTOCOL = (
-    "maniskill_frozen_pi0_action_suffix_temporal_bins_v1"
-)
-FROZEN_TEMPORAL_LATENT_BINS = 5
 FROZEN_LATENT_CHECKPOINT_SCHEMA = (
-    "lightweight_rlt_frozen_pi0_continuous_residual_v4"
-)
-LEGACY_V3_FROZEN_LATENT_CHECKPOINT_SCHEMA = (
-    "lightweight_rlt_frozen_pi0_continuous_residual_v3"
+    "mean_frozen_latent_advantage_bc_v1"
 )
 LEGACY_V4_FROZEN_LATENT_CHECKPOINT_SCHEMA = (
     "lightweight_rlt_frozen_pi0_continuous_residual_v4"
@@ -61,7 +43,6 @@ def make_runtime_identity(
     chunk_len: int,
     max_episode_steps: int,
     openpi_policy_identity_sha256: str,
-    temporal_latent_bins: int = 1,
 ) -> dict[str, Any]:
     """Build the immutable deployment identity used by v2 runtime checks."""
 
@@ -87,14 +68,6 @@ def make_runtime_identity(
         "frozen_latent_protocol": FROZEN_LATENT_PROTOCOL,
         "frozen_latent_dim": FROZEN_LATENT_DIM,
     }
-    if int(temporal_latent_bins) > 1:
-        if int(temporal_latent_bins) != FROZEN_TEMPORAL_LATENT_BINS:
-            raise ValueError("Only five temporal latent bins are supported")
-        identity.update(
-            frozen_temporal_latent_protocol=FROZEN_TEMPORAL_LATENT_PROTOCOL,
-            frozen_temporal_latent_bins=FROZEN_TEMPORAL_LATENT_BINS,
-            frozen_temporal_latent_dim=FROZEN_LATENT_DIM,
-        )
     return identity
 
 
@@ -125,8 +98,6 @@ def _mlp(in_dim: int, out_dim: int, hidden_dim: int, num_layers: int) -> nn.Sequ
 class FrozenLatentRLConfig:
     state_dim: int
     latent_dim: int = FROZEN_LATENT_DIM
-    temporal_latent_bins: int = 1
-    temporal_adapter_dim: int = 64
     action_dim: int = 8
     chunk_len: int = 50
     max_episode_steps: int = 500
@@ -150,7 +121,7 @@ class FrozenLatentRLConfig:
     mc_loss_weight: float = 0.5
     conservative_q_weight: float = 1.0
     conservative_random_std: float = 0.35
-    outcome_success_threshold: float = 0.5
+    success_bc_min_return: float = 0.5
     actor_success_bc_weight: float = 2.0
     actor_success_bc_min_residual_rms: float = 1e-4
     actor_success_bc_min_q_advantage: float = 0.0
@@ -166,8 +137,6 @@ class FrozenLatentRLConfig:
         if min(
             self.state_dim,
             self.latent_dim,
-            self.temporal_latent_bins,
-            self.temporal_adapter_dim,
             self.chunk_len,
             self.max_episode_steps,
             self.context_dim,
@@ -179,8 +148,6 @@ class FrozenLatentRLConfig:
             raise ValueError("Model dimensions and horizons must be positive")
         if self.num_critics < 2:
             raise ValueError("TD3 requires at least two critics")
-        if self.temporal_latent_bins not in {1, FROZEN_TEMPORAL_LATENT_BINS}:
-            raise ValueError("temporal_latent_bins must be 1 or 5")
         if self.exploration_knots > self.chunk_len:
             raise ValueError("exploration_knots cannot exceed chunk_len")
         if not 0.0 < self.arm_residual_fraction <= 0.5:
@@ -221,8 +188,8 @@ class FrozenLatentRLConfig:
             raise ValueError(
                 "actor_success_bc_min_residual_rms must lie in [0, 1]"
             )
-        if not 0.0 < self.outcome_success_threshold < 1.0:
-            raise ValueError("outcome_success_threshold must lie in (0, 1)")
+        if not 0.0 < self.success_bc_min_return < 1.0:
+            raise ValueError("success_bc_min_return must lie in (0, 1)")
         if self.action_low is None or self.action_high is None:
             raise ValueError("action_low and action_high are required")
         if len(self.action_low) != self.action_dim or len(self.action_high) != self.action_dim:
@@ -233,11 +200,6 @@ class FrozenLatentRLConfig:
             raise ValueError("Action bounds must be finite with low < high")
         if self.latent_protocol != FROZEN_LATENT_PROTOCOL:
             raise ValueError("Unsupported frozen latent protocol")
-
-    @property
-    def latent_storage_rows(self) -> int:
-        return 1 if self.temporal_latent_bins == 1 else 1 + self.temporal_latent_bins
-
 
 @dataclass(slots=True)
 class FrozenLatentBatch:
@@ -256,7 +218,7 @@ class FrozenLatentBatch:
 
 
 class FrozenLatentReplayBuffer:
-    """Exact executed-action replay with legacy v2 migration support."""
+    """Exact executed-action replay for mean frozen latents."""
 
     def __init__(
         self,
@@ -264,25 +226,21 @@ class FrozenLatentReplayBuffer:
         *,
         state_dim: int,
         latent_dim: int,
-        latent_bins: int = 1,
         chunk_len: int,
         action_dim: int = 8,
         seed: int = 0,
     ) -> None:
-        if min(capacity, state_dim, latent_dim, latent_bins, chunk_len, action_dim) <= 0:
+        if min(capacity, state_dim, latent_dim, chunk_len, action_dim) <= 0:
             raise ValueError("Replay dimensions and capacity must be positive")
         if action_dim != 8:
             raise ValueError("Frozen-latent replay requires action_dim=8")
-        if latent_bins not in {1, 1 + FROZEN_TEMPORAL_LATENT_BINS}:
-            raise ValueError("Replay latent_bins must be 1 or 6")
         self.capacity = int(capacity)
         self.state_dim = int(state_dim)
         self.latent_dim = int(latent_dim)
-        self.latent_bins = int(latent_bins)
         self.chunk_len = int(chunk_len)
         self.action_dim = int(action_dim)
         self._rng = np.random.default_rng(seed)
-        self.latent_shape = (latent_dim,) if latent_bins == 1 else (latent_bins, latent_dim)
+        self.latent_shape = (latent_dim,)
         self.states = np.zeros((capacity, state_dim), dtype=np.float32)
         self.latents = np.zeros((capacity, *self.latent_shape), dtype=np.float16)
         self.ref_chunks = np.zeros((capacity, chunk_len, action_dim), dtype=np.float32)
@@ -306,7 +264,7 @@ class FrozenLatentReplayBuffer:
 
     @property
     def schema_version(self) -> int:
-        return 3 if self.latent_bins == 1 else 4
+        return 3
 
     def _indices(self) -> np.ndarray:
         return np.arange(self.capacity if self.full else self.pos, dtype=np.int64)
@@ -496,7 +454,7 @@ class FrozenLatentReplayBuffer:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         idx = self._indices()
-        schema = 3 if self.latent_bins == 1 else 4
+        schema = 3
         with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".npz", delete=False) as file:
             temporary = Path(file.name)
             payload: dict[str, Any] = {
@@ -523,45 +481,24 @@ class FrozenLatentReplayBuffer:
                 "step_ids": self.step_ids[idx],
                 "mc_returns": self.mc_returns[idx],
             }
-            if schema == 4:
-                payload["latent_bins"] = np.int32(self.latent_bins)
             np.savez_compressed(file, **payload)
         temporary.replace(path)
 
     def load(self, path: str | Path) -> int:
-        """Load replay, migrating compact v2 and mean rows when needed."""
+        """Restore an exact replay snapshot for interrupted-run continuation."""
 
         self.last_load_was_exact = False
         self.last_loaded_snapshot_id = None
         self.last_migration_stats = None
         with np.load(path, allow_pickle=False) as data:
             source_schema = int(np.asarray(data["schema_version"]))
-            if source_schema not in {2, 3, 4}:
-                raise ValueError("Unsupported frozen-latent replay schema")
+            if source_schema != 3:
+                raise ValueError("Replay is not a mean Advantage-BC schema")
             source_size = int(np.asarray(data["states"]).shape[0])
-            legacy_compact = source_schema == 2
-            source_capacity = (
-                source_size
-                if legacy_compact
-                else int(np.asarray(data["capacity"]))
-            )
-            source_pos = (
-                source_size
-                if legacy_compact
-                else int(np.asarray(data["pos"]))
-            )
-            source_full = (
-                False
-                if legacy_compact
-                else bool(np.asarray(data["full"]))
-            )
-            source_latent_bins = (
-                1
-                if source_schema in {2, 3}
-                else int(np.asarray(data["latent_bins"]))
-            )
-            if source_latent_bins not in {1, 6}:
-                raise ValueError("Source replay must contain one mean or six temporal rows")
+            source_capacity = int(np.asarray(data["capacity"]))
+            source_pos = int(np.asarray(data["pos"]))
+            source_full = bool(np.asarray(data["full"]))
+            source_latent_bins = 1
             if int(np.asarray(data["state_dim"])) != self.state_dim:
                 raise ValueError("Replay state_dim does not match model")
             if int(np.asarray(data["latent_dim"])) != self.latent_dim:
@@ -570,19 +507,15 @@ class FrozenLatentReplayBuffer:
                 raise ValueError("Replay chunk_len does not match model")
             if int(np.asarray(data["action_dim"])) != self.action_dim:
                 raise ValueError("Replay action_dim does not match model")
-            if legacy_compact:
-                if source_size > self.capacity:
-                    raise ValueError("Legacy replay does not fit in target capacity")
-            else:
-                if (
-                    source_size > source_capacity
-                    or source_pos < 0
-                    or source_pos >= source_capacity
-                ):
-                    raise ValueError("Replay capacity/position metadata is invalid")
-                expected = source_capacity if source_full else source_pos
-                if source_size != expected:
-                    raise ValueError("Replay state and transition count disagree")
+            if (
+                source_size > source_capacity
+                or source_pos < 0
+                or source_pos >= source_capacity
+            ):
+                raise ValueError("Replay capacity/position metadata is invalid")
+            expected = source_capacity if source_full else source_pos
+            if source_size != expected:
+                raise ValueError("Replay state and transition count disagree")
             names = (
                 "states", "latents", "ref_chunks", "action_chunks", "rewards",
                 "dones", "next_states", "next_latents", "next_ref_chunks",
@@ -675,12 +608,8 @@ class FrozenLatentReplayBuffer:
                 else ""
             )
             self.last_loaded_snapshot_id = loaded_snapshot_id or None
-            migrating = source_latent_bins != self.latent_bins
-            expected_schema = 3 if self.latent_bins == 1 else 4
             exact_layout = bool(
-                not migrating
-                and not legacy_compact
-                and source_schema == expected_schema
+                source_schema == 3
                 and source_capacity == self.capacity
                 and "rng_state" in data.files
             )
@@ -701,46 +630,9 @@ class FrozenLatentReplayBuffer:
                 )
                 self.last_load_was_exact = True
                 return source_size
-            if len(self):
-                raise ValueError("Non-exact replay migration requires an empty buffer")
-            if source_full:
-                order = np.concatenate(
-                    (np.arange(source_pos, source_size), np.arange(0, source_pos))
-                )
-            else:
-                order = np.arange(source_size)
-            arrays = {name: value[order] for name, value in arrays.items()}
-            source_latents = arrays["latents"]
-            source_next_latents = arrays["next_latents"]
-            if migrating:
-                if not (source_latent_bins == 1 and self.latent_bins == 6):
-                    raise ValueError("Only mean-to-temporal replay migration is supported")
-                source_latents = np.repeat(source_latents[:, None, :], 6, axis=1)
-                source_next_latents = np.repeat(source_next_latents[:, None, :], 6, axis=1)
-            if source_size > self.capacity:
-                raise ValueError("Replay does not fit in target capacity")
-            for name, target in (
-                ("states", self.states), ("ref_chunks", self.ref_chunks),
-                ("action_chunks", self.action_chunks), ("rewards", self.rewards),
-                ("dones", self.dones), ("next_states", self.next_states),
-                ("next_ref_chunks", self.next_ref_chunks), ("durations", self.durations),
-                ("step_ids", self.step_ids), ("mc_returns", self.mc_returns),
-            ):
-                target[:source_size] = arrays[name]
-            self.latents[:source_size] = source_latents
-            self.next_latents[:source_size] = source_next_latents
-            self.pos = source_size if source_size < self.capacity else 0
-            self.full = source_size == self.capacity
-            self.last_migration_stats = {
-                "source_schema": source_schema,
-                "source_latent_bins": source_latent_bins,
-                "target_latent_bins": self.latent_bins,
-                "raw_rows": source_size,
-                "migrated": migrating,
-            }
-            if legacy_compact:
-                self.last_migration_stats["layout_migrated"] = True
-            return source_size
+            raise ValueError(
+                "Resume replay must match schema, capacity, and RNG layout exactly"
+            )
 
 
 class FrozenLatentContextEncoder(nn.Module):
@@ -751,15 +643,6 @@ class FrozenLatentContextEncoder(nn.Module):
         self.latent = nn.Sequential(
             nn.LayerNorm(config.latent_dim), nn.Linear(config.latent_dim, h), nn.GELU()
         )
-        if config.temporal_latent_bins > 1:
-            self.temporal = nn.Sequential(
-                nn.LayerNorm(config.latent_dim, elementwise_affine=False),
-                nn.Linear(config.latent_dim, config.temporal_adapter_dim, bias=False),
-                nn.GELU(),
-                nn.Flatten(start_dim=1),
-                nn.Linear(config.temporal_latent_bins * config.temporal_adapter_dim, h, bias=False),
-            )
-            self.temporal_gate = nn.Parameter(torch.zeros(()))
         self.state = nn.Sequential(
             nn.Linear(config.state_dim + 1, h), nn.LayerNorm(h), nn.GELU()
         )
@@ -779,21 +662,9 @@ class FrozenLatentContextEncoder(nn.Module):
             self.config.max_episode_steps
         )
         state_time = torch.cat([state, remaining.clamp(0.0, 1.0)], dim=-1)
-        if self.config.temporal_latent_bins == 1:
-            if latent.ndim != 2 or latent.shape[-1] != self.config.latent_dim:
-                raise ValueError("Mean latent must have shape [B, latent_dim]")
-            latent_feature = self.latent(latent)
-        else:
-            expected = self.config.latent_storage_rows
-            if latent.ndim != 3 or latent.shape[1:] != (expected, self.config.latent_dim):
-                raise ValueError(
-                    "Temporal latent must have shape "
-                    f"[B,{expected},{self.config.latent_dim}]"
-                )
-            exact_mean = latent[:, 0]
-            latent_feature = self.latent(exact_mean) + self.temporal_gate * self.temporal(
-                latent[:, 1:] - exact_mean[:, None]
-            )
+        if latent.ndim != 2 or latent.shape[-1] != self.config.latent_dim:
+            raise ValueError("Mean latent must have shape [B, latent_dim]")
+        latent_feature = self.latent(latent)
         return self.fusion(
             torch.cat(
                 [
@@ -1190,7 +1061,7 @@ class FrozenLatentResidualAgent:
                 )
                 success_anchor = (
                     finite_mc
-                    & (mc_return > self.config.outcome_success_threshold)
+                    & (mc_return > self.config.success_bc_min_return)
                     & (
                         executed_rms
                         > self.config.actor_success_bc_min_residual_rms
@@ -1273,7 +1144,7 @@ class FrozenLatentResidualAgent:
         target_rms = torch.sqrt((target.square() * weight).sum(dim=(1, 2)) / count)
         anchors = (
             torch.isfinite(mc_return)
-            & (mc_return > self.config.outcome_success_threshold)
+            & (mc_return > self.config.success_bc_min_return)
             & (target_rms > self.config.actor_success_bc_min_residual_rms)
         )
         if not bool(anchors.any()):
@@ -1413,79 +1284,40 @@ class FrozenLatentResidualAgent:
         self.snapshot_id = snapshot_id or None
 
     @classmethod
-    def upgrade_from_mean_checkpoint(
-        cls,
-        path: str | Path,
-        *,
-        device: str | torch.device = "cpu",
-        runtime_identity: dict[str, Any] | None = None,
-        temporal_latent_bins: int = FROZEN_TEMPORAL_LATENT_BINS,
-        temporal_adapter_dim: int = 64,
-    ) -> FrozenLatentResidualAgent:
-        source = cls.load(path, device=device)
-        if source.config.temporal_latent_bins != 1:
-            raise ValueError("Temporal upgrade requires a mean-latent checkpoint")
-        config = replace(
-            source.config,
-            temporal_latent_bins=int(temporal_latent_bins),
-            temporal_adapter_dim=int(temporal_adapter_dim),
-        )
-        agent = cls(config, device=device, runtime_identity=runtime_identity)
-        incompatible = agent.context.load_state_dict(source.context.state_dict(), strict=False)
-        allowed = {"temporal_gate", "temporal.1.weight", "temporal.4.weight"}
-        if (
-            any(key not in allowed for key in incompatible.missing_keys)
-            or incompatible.unexpected_keys
-        ):
-            raise ValueError(f"Mean context is incompatible with temporal adapter: {incompatible}")
-        agent.target_context.load_state_dict(agent.context.state_dict())
-        agent.actor.load_state_dict(source.actor.state_dict())
-        agent.target_actor.load_state_dict(agent.actor.state_dict())
-        agent.critic.load_state_dict(source.critic.state_dict())
-        agent.target_critic.load_state_dict(agent.critic.state_dict())
-        return agent
-
-    @classmethod
     def load(
         cls,
         path: str | Path,
         *,
         device: str | torch.device = "cpu",
-        legacy_actor_success_bc_weight: float = 0.0,
     ) -> FrozenLatentResidualAgent:
         payload = torch.load(path, map_location=device, weights_only=False)
         schema = payload.get("schema")
         version = int(payload.get("checkpoint_version", -1))
         accepted = {
-            (LEGACY_V3_FROZEN_LATENT_CHECKPOINT_SCHEMA, 3),
+            (FROZEN_LATENT_CHECKPOINT_SCHEMA, 4),
             (LEGACY_V4_FROZEN_LATENT_CHECKPOINT_SCHEMA, 4),
         }
         if (schema, version) not in accepted:
             raise ValueError("Checkpoint is not a maintained frozen-Pi0 residual agent")
         raw_config = dict(payload["config"])
-        if version == 3:
-            raw_config.setdefault(
-                "actor_success_bc_weight",
-                float(legacy_actor_success_bc_weight),
+        if "outcome_success_threshold" in raw_config:
+            raw_config["success_bc_min_return"] = raw_config.pop(
+                "outcome_success_threshold"
             )
+        if int(raw_config.get("temporal_latent_bins", 1)) != 1:
+            raise ValueError("Temporal checkpoints are not supported on this branch")
+        if float(raw_config.get("q_uncertainty_beta", 0.0)) != 0.0:
+            raise ValueError("Q-uncertainty checkpoints are not supported on this branch")
         config_fields = {field.name for field in fields(FrozenLatentRLConfig)}
-        # Existing v4 checkpoints carry the retired outcome hyperparameters.
-        # They are metadata only and must not instantiate a second critic.
         ignored = set(raw_config) - config_fields
+        unexpected = ignored - {
+            "temporal_latent_bins",
+            "temporal_adapter_dim",
+            "q_uncertainty_beta",
+        }
+        if unexpected:
+            raise ValueError(f"Checkpoint has unsupported fields: {sorted(unexpected)}")
         raw_config = {key: value for key, value in raw_config.items() if key in config_fields}
-        if ignored:
-            # Explicitly reject retired policy branches if a checkpoint tried to
-            # encode one, while silently dropping harmless outcome metadata.
-            retired = ignored & {
-                "vl_prefix_latent_dim", "vl_prefix_adapter_dim", "vl_prefix_latent_protocol",
-                "temporal_option_count", "temporal_option_knots", "latent_mode_count",
-                "latent_mode_knots", "intervention_conditioning", "deployment_max_interventions",
-                "deployment_cooldown_chunks",
-                "deployment_minimum_boundary",
-                "deployment_min_q_advantage",
-            }
-            if retired:
-                raise ValueError(f"Checkpoint uses a removed policy branch: {sorted(retired)}")
         agent = cls(
             FrozenLatentRLConfig(**raw_config),
             device=device,

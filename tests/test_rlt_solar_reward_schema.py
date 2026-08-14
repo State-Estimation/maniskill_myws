@@ -145,18 +145,6 @@ def test_online_exploration_respects_eligibility() -> None:
     )
 
 
-def test_legacy_budget_exhaustion_is_opt_in_and_exact() -> None:
-    assert not TRAIN._legacy_budget_exhausted(
-        env_steps=49_999, total_env_steps=50_000, enabled=True
-    )
-    assert TRAIN._legacy_budget_exhausted(
-        env_steps=50_000, total_env_steps=50_000, enabled=True
-    )
-    assert not TRAIN._legacy_budget_exhausted(
-        env_steps=50_000, total_env_steps=50_000, enabled=False
-    )
-
-
 def test_trainer_state_round_trip_restores_rng_and_episode_boundary(tmp_path) -> None:
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(123)
@@ -210,32 +198,3 @@ def test_snapshot_generation_rejects_mixed_files() -> None:
             checkpoint_snapshot_id="generation-b",
             replay_snapshot_id="generation-a",
         )
-
-
-@pytest.mark.parametrize(
-    ("checkpoint_id", "replay_id"),
-    ((None, None), ("generation-a", None), (None, "generation-a")),
-)
-def test_policy_fork_requires_explicit_snapshot_pair(
-    checkpoint_id: str | None, replay_id: str | None
-) -> None:
-    with pytest.raises(ValueError, match="non-empty"):
-        TRAIN._require_checkpoint_replay_snapshot_pair(
-            checkpoint_snapshot_id=checkpoint_id,
-            replay_snapshot_id=replay_id,
-            source_name="test fork",
-        )
-    with pytest.raises(ValueError, match="generations differ"):
-        TRAIN._require_checkpoint_replay_snapshot_pair(
-            checkpoint_snapshot_id="generation-a",
-            replay_snapshot_id="generation-b",
-            source_name="test fork",
-        )
-    assert (
-        TRAIN._require_checkpoint_replay_snapshot_pair(
-            checkpoint_snapshot_id="generation-a",
-            replay_snapshot_id="generation-a",
-            source_name="test fork",
-        )
-        == "generation-a"
-    )

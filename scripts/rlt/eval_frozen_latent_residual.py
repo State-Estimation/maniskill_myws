@@ -77,35 +77,16 @@ def _done(value) -> bool:
 
 
 def _plan_context(policy, obs: dict, *, config, inference_seed: int):
-    if config.temporal_latent_bins == 1:
-        ref, latent = policy.plan_with_latent(
-            obs,
-            chunk_len=config.chunk_len,
-            action_dim=config.action_dim,
-            inference_seed=inference_seed,
-        )
-        latent = np.asarray(latent, dtype=np.float32)
-        if latent.shape != (config.latent_dim,):
-            raise ValueError("OpenPI mean latent does not match checkpoint schema")
-        return np.asarray(ref, dtype=np.float32), latent
-
-    ref, mean_latent, temporal_latent = policy.plan_with_temporal_latent(
+    ref, latent = policy.plan_with_latent(
         obs,
         chunk_len=config.chunk_len,
         action_dim=config.action_dim,
         inference_seed=inference_seed,
     )
-    mean = np.asarray(mean_latent, dtype=np.float32)
-    temporal = np.asarray(temporal_latent, dtype=np.float32)
-    if mean.shape != (config.latent_dim,) or temporal.shape != (
-        config.temporal_latent_bins,
-        config.latent_dim,
-    ):
-        raise ValueError("OpenPI temporal latent does not match checkpoint schema")
-    return (
-        np.asarray(ref, dtype=np.float32),
-        np.concatenate([mean[None], temporal], axis=0),
-    )
+    latent = np.asarray(latent, dtype=np.float32)
+    if latent.shape != (config.latent_dim,):
+        raise ValueError("OpenPI mean latent does not match checkpoint schema")
+    return np.asarray(ref, dtype=np.float32), latent
 
 
 def _bootstrap_interval(deltas: np.ndarray, seed: int) -> list[float]:
@@ -434,7 +415,6 @@ def main() -> None:
     from maniskill_myws.rlt.backend import require_resolved_backend
     from maniskill_myws.rlt.frozen_latent_rl import (
         FROZEN_LATENT_PROTOCOL,
-        FROZEN_TEMPORAL_LATENT_PROTOCOL,
         FrozenLatentResidualAgent,
         make_runtime_identity,
     )
@@ -520,17 +500,10 @@ def main() -> None:
         state_keys=args.state_keys,
         resize=args.resize,
         require_frozen_latent=True,
-        require_frozen_temporal_latent=config.temporal_latent_bins > 1,
     )
     metadata = rlt_policy.server_metadata or {}
     if metadata.get("frozen_latent_protocol") != FROZEN_LATENT_PROTOCOL:
         raise RuntimeError("OpenPI server does not expose the required mean latent")
-    if (
-        config.temporal_latent_bins > 1
-        and metadata.get("frozen_temporal_latent_protocol")
-        != FROZEN_TEMPORAL_LATENT_PROTOCOL
-    ):
-        raise RuntimeError("OpenPI server does not expose the temporal latent")
 
     base_policy = None
     if base_env is not None:
@@ -566,7 +539,6 @@ def main() -> None:
         chunk_len=config.chunk_len,
         max_episode_steps=config.max_episode_steps,
         openpi_policy_identity_sha256=openpi_policy_identity_sha256(metadata),
-        temporal_latent_bins=config.temporal_latent_bins,
     )
     runtime_identity["environment_reward_schema"] = reward_schema
     agent.assert_runtime_identity(runtime_identity)
@@ -1215,11 +1187,7 @@ def main() -> None:
         "evaluation_seeds": evaluation_seeds,
         "num_seeds": len(evaluation_seeds),
         **_aggregate_rows(rows, bootstrap_seed=args.bootstrap_seed),
-        "representation": (
-            "mean_plus_five_ordered_temporal_bins"
-            if config.temporal_latent_bins > 1
-            else "mean_pooled_action_suffix"
-        ),
+        "representation": "mean_pooled_action_suffix",
         "live_lockstep_trajectories": bool(args.live_paired_trajectories),
         "trajectory_colors": (
             {"base": "blue", "refined_rl": "orange"}

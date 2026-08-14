@@ -191,22 +191,6 @@ class BaseChunkPolicy:
             None,
         )
 
-    def plan_with_temporal_latent(
-        self,
-        obs: dict,
-        *,
-        chunk_len: int,
-        action_dim: int,
-        inference_seed: int | None = None,
-    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
-        chunk, latent = self.plan_with_latent(
-            obs,
-            chunk_len=chunk_len,
-            action_dim=action_dim,
-            inference_seed=inference_seed,
-        )
-        return chunk, latent, None
-
 class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
     """Query OpenPI for a fresh reference action chunk at each RLT chunk boundary."""
 
@@ -223,7 +207,6 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
         action_high: np.ndarray,
         resize: int = 224,
         require_frozen_latent: bool = False,
-        require_frozen_temporal_latent: bool = False,
     ) -> None:
         from maniskill_myws.openpi_bridge.obs_to_openpi import ObsAdapter
         from maniskill_myws.openpi_bridge.remote_policy import RemoteWebsocketChunkPolicy
@@ -255,7 +238,6 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
             act_dim=action_dim,
             resize=resize,
             require_frozen_latent=require_frozen_latent,
-            require_frozen_temporal_latent=require_frozen_temporal_latent,
         )
         self._projection_totals: dict[str, object] = {
             "chunks": 0,
@@ -408,27 +390,6 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
             )
         return chunk, latent
 
-    def plan_with_temporal_latent(
-        self,
-        obs: dict,
-        *,
-        chunk_len: int,
-        action_dim: int,
-        inference_seed: int | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        chunk, latent = self.plan_with_latent(
-            obs,
-            chunk_len=chunk_len,
-            action_dim=action_dim,
-            inference_seed=inference_seed,
-        )
-        temporal_latent = self.policy.planned_temporal_latent()
-        if temporal_latent is None:
-            raise RuntimeError(
-                "Remote OpenPI policy did not return a frozen temporal action latent"
-            )
-        return chunk, latent, temporal_latent
-
 def make_base_chunk_policy(
     kind: str,
     *,
@@ -441,7 +402,6 @@ def make_base_chunk_policy(
     state_keys: Sequence[str] = ("agent/qpos", "agent/qvel", "extra/tcp_pose"),
     resize: int = 224,
     require_frozen_latent: bool = False,
-    require_frozen_temporal_latent: bool = False,
 ) -> BaseChunkPolicy:
     if kind == "remote_openpi":
         if not server:
@@ -457,7 +417,6 @@ def make_base_chunk_policy(
             action_high=np.asarray(action_space.high, dtype=np.float32),
             resize=resize,
             require_frozen_latent=require_frozen_latent,
-            require_frozen_temporal_latent=require_frozen_temporal_latent,
         )
     raise ValueError(
         f"Unsupported base chunk policy {kind!r}; only 'remote_openpi' is maintained"
