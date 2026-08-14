@@ -641,6 +641,8 @@ def main() -> None:
             raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint_path}")
         if resume_replay_path is None or not resume_replay_path.is_file():
             raise FileNotFoundError(f"Resume replay not found: {resume_replay_path}")
+        if resume_history_path is None or not resume_history_path.is_file():
+            raise FileNotFoundError(f"Resume history not found: {resume_history_path}")
         agent = FrozenLatentResidualAgent.load(
             resume_checkpoint_path,
             device=device,
@@ -712,6 +714,7 @@ def main() -> None:
             {
                 "checkpoint": str(resume_checkpoint_path.resolve()),
                 "replay": str(resume_replay_path.resolve()),
+                "history": str(resume_history_path.resolve()),
                 "mode": resume_progress["resume_mode"],
             }
             if resume_progress is not None

@@ -31,6 +31,7 @@ runtime = [
 dev = [
   "pytest>=7.4",
   "ruff>=0.3",
+  "torch>=2.2",
 ]
 
 [tool.setuptools]
@@ -49,6 +50,9 @@ exclude = [
   "third_party",
   "tests/test_manipulation.py",
 ]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
