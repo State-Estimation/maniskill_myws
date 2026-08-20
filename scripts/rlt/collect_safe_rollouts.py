@@ -43,7 +43,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--wrist-image-key", default="sensor_data/hand_camera/rgb")
     parser.add_argument("--state-keys", nargs="+", default=DEFAULT_STATE_KEYS)
     parser.add_argument("--resize", type=int, default=224)
-    parser.add_argument("--chunk-len", type=int, default=50)
+    parser.add_argument("--chunk-len", type=int, default=10)
     parser.add_argument("--max-episode-steps", type=int, default=500)
     parser.add_argument("--num-episodes", type=int, default=600)
     parser.add_argument("--start-seed", type=int, default=0)

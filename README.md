@@ -191,7 +191,7 @@ python -u scripts/rlt/collect_safe_rollouts.py \
   --env-id TakeSafetyHook-v1 \
   --server ws://127.0.0.1:8012 \
   --start-seed 61000 --num-episodes 600 \
-  --chunk-len 50 --max-episode-steps 500 \
+  --chunk-len 10 --max-episode-steps 500 \
   --output outputs/safe/TakeSafetyHook-v1_prevelocity_seed61000/rollouts.npz
 ```
 
@@ -226,7 +226,7 @@ python -u scripts/rlt/eval_official_safe_live.py \
   --server ws://127.0.0.1:8012 \
   --env-id TakeSafetyHook-v1 \
   --sim-backend physx_cpu --render-backend sapien_cuda:0 \
-  --start-seed 52000 --num-episodes 10 --real-time
+  --start-seed 52000 --num-episodes 10 --chunk-len 10 --real-time
 ```
 
 该入口默认读取 checkpoint 同目录的 `gate_eval_summary_v2.json` 校准阈值，也可
