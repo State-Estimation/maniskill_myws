@@ -249,6 +249,9 @@ third_party/XLeVR/xlevr/inputs/vr_ws_server.py
 
 third_party/XLeVR/hdf5-trajectory/
 
+# External official SAFE checkout (pinned and validated by the launcher)
+third_party/SAFE/
+
 render_output/
 third_party/XLeVR/project_plan
 paper_tools/

@@ -157,6 +157,83 @@ python -u scripts/rlt/eval_frozen_latent_residual.py \
 
 更完整的实现约束见 [`docs/rlt_post_training.md`](docs/rlt_post_training.md)。
 
+## SAFE pre-velocity latent interface
+
+OpenPI 可在每个 action chunk 上返回 action expert `action_out_proj` 之前的
+`pre_velocity` token。当前协议等价于官方 SAFE 的
+`diff_idx_rel=concat-2` 和 `horizon_idx_rel=concat-2`：取首末 diffusion step 与
+首末 horizon token，按固定顺序拼接为 4096 维 float32。该接口不使用 mean
+pooling，与 RL 的 1024 维 frozen latent 互斥。
+
+启动服务时使用 `--safe-pre-velocity-latent`。服务端 metadata 与客户端会校验
+protocol、shape、dtype、token 选择和 pooling 方式。Detector 的数据适配、训练与
+conformal 评测由 `third_party/SAFE` 官方实现承担，不在主工作区维护重复网络。
+
+官方 SAFE 依赖建议安装到独立环境：
+
+```bash
+git clone https://github.com/vla-safe/SAFE.git third_party/SAFE
+git -C third_party/SAFE checkout b6036abe07b2b2bb9996afb2c07f13d6a9f507c0
+conda create -n vla-safe python=3.10
+conda activate vla-safe
+# 先按本机 CUDA 版本安装 PyTorch
+pip install -r requirements-safe.txt
+pip install -e third_party/SAFE
+pip install -e .
+```
+
+采集时由 ManiSkill 环境运行 base policy，每个 episode 只保存 chunk latent 和
+与现有评测一致的 episode 内 `info["success"]` 是否曾成立：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n mani_skill \
+python -u scripts/rlt/collect_safe_rollouts.py \
+  --env-id TakeSafetyHook-v1 \
+  --server ws://127.0.0.1:8012 \
+  --start-seed 61000 --num-episodes 600 \
+  --chunk-len 50 --max-episode-steps 500 \
+  --output outputs/safe/TakeSafetyHook-v1_prevelocity_seed61000/rollouts.npz
+```
+
+训练入口会校验 SAFE 官方 commit，将 `.npz` 转成官方 `Rollout`，并按成功/
+失败分层划分 train、`val_seen` calibration 和 `val_unseen` test。单任务下的
+`val_unseen` 表示未见 episode，不表示 unseen task。
+
+```bash
+CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n vla-safe \
+python -u scripts/rlt/train_official_safe.py \
+  dataset=pizero \
+  dataset.data_path="$PWD/outputs/safe/TakeSafetyHook-v1_prevelocity_seed61000/rollouts.npz" \
+  dataset.diff_idx_rel=concat-2 dataset.horizon_idx_rel=concat-2 \
+  dataset.load_to_cuda=True dataset.normalize_hidden_states=False \
+  dataset.seen_train_ratio=0.75 dataset.unseen_task_ratio=0.2 \
+  model=lstm model.lr=3e-4 model.lambda_reg=1e-2 \
+  train.seed=0-1-2 train.eval_save_ckpt=True \
+  train.wandb_project=maniskill-safe train.wandb_group_name=hook-official-safe \
+  train.exp_suffix=prevelocity-concat2
+```
+
+实时观察时，OpenPI 服务需要使用 `--safe-pre-velocity-latent`。下面的评测入口
+同时打开 SAPIEN rollout 和 SAFE failure probability 曲线，但检测器只以 shadow
+mode 运行，不会修改 base action 或触发 RL：
+
+```bash
+DISPLAY=:1 XAUTHORITY=/run/user/1000/gdm/Xauthority \
+CUDA_VISIBLE_DEVICES=0 MPLBACKEND=TkAgg MPLCONFIGDIR=/tmp/safe-live-mpl-$UID \
+conda run --no-capture-output -n mani_skill \
+python -u scripts/rlt/eval_official_safe_live.py \
+  --checkpoint /path/to/official-safe/model_final.ckpt \
+  --server ws://127.0.0.1:8012 \
+  --env-id TakeSafetyHook-v1 \
+  --sim-backend physx_cpu --render-backend sapien_cuda:0 \
+  --start-seed 52000 --num-episodes 10 --real-time
+```
+
+该入口默认读取 checkpoint 同目录的 `gate_eval_summary_v2.json` 校准阈值，也可
+显式传入 `--threshold`。环境源码或 OpenPI policy identity 与训练数据不一致时会
+拒绝运行；`--allow-environment-mismatch` 只应用于诊断性可视化，所得结果不构成
+有效的准确率评测。
+
 ## 快速开始（本地 ManiSkill 源码）
 
 1) 安装 ManiSkill（本地源码或已有环境），确保 `import mani_skill` 可用。  

@@ -1,0 +1,17 @@
+# Install a CUDA-compatible PyTorch build separately before this file.
+pandas
+scipy
+pyyaml
+tqdm
+imageio[ffmpeg]
+hydra-core
+omegaconf
+scikit-learn
+opencv-python
+einops
+wandb
+plotly
+matplotlib
+natsort
+ml-dtypes
+flask

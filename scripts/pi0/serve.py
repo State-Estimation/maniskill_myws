@@ -36,6 +36,9 @@ _INFERENCE_SEED_CAPABILITY = "maniskill_deterministic_inference_seed_v1"
 _FROZEN_LATENT_PROTOCOL = "maniskill_frozen_pi0_action_suffix_mean_v1"
 _FROZEN_LATENT_KEY = "frozen_pi0_latent"
 _FROZEN_LATENT_DIM = 1024
+_SAFE_LATENT_PROTOCOL = "safe_pi0_pre_velocity_diff2_horizon2_concat_v1"
+_SAFE_LATENT_KEY = "safe_pi0_pre_velocity"
+_SAFE_LATENT_DIM = 4 * 1024
 _CONTENT_HASH_SCHEMA = b"maniskill_policy_content_tree_sha256_v1\0"
 _HASH_BLOCK_SIZE = 8 * 1024 * 1024
 
@@ -376,12 +379,21 @@ def main() -> None:
         help="Optional path to a norm stats directory or norm_stats.json file to use instead of checkpoint assets.",
     )
     p.add_argument("--record", action="store_true")
-    p.add_argument(
+    latent_group = p.add_mutually_exclusive_group()
+    latent_group.add_argument(
         "--frozen-action-latent",
         action="store_true",
         help=(
             "return the frozen final-denoise Pi0 action-suffix hidden mean "
             "alongside each action chunk"
+        ),
+    )
+    latent_group.add_argument(
+        "--safe-pre-velocity-latent",
+        action="store_true",
+        help=(
+            "return SAFE's pre-velocity action tokens using official concat-2 "
+            "selection over diffusion steps and action horizon (4096 floats)"
         ),
     )
     # XLA safety knobs (must be applied before importing openpi/JAX).
@@ -455,11 +467,12 @@ def main() -> None:
 
     cfg = openpi_config.get_config(args.config)
     frozen_action_latent = bool(args.frozen_action_latent)
-    if frozen_action_latent:
+    safe_pre_velocity_latent = bool(args.safe_pre_velocity_latent)
+    if frozen_action_latent or safe_pre_velocity_latent:
         action_expert_variant = getattr(cfg.model, "action_expert_variant", None)
         if action_expert_variant is None:
             raise ValueError(
-                "--frozen-action-latent requires a Pi0 model with an action expert"
+                "Latent output requires a Pi0 model with an action expert"
             )
         actual_latent_dim = _gemma.get_config(action_expert_variant).width
         if actual_latent_dim != _FROZEN_LATENT_DIM:
@@ -487,6 +500,7 @@ def main() -> None:
         default_prompt=args.default_prompt,
         norm_stats=norm_stats,
         return_frozen_action_latent=frozen_action_latent,
+        return_safe_pre_velocity=safe_pre_velocity_latent,
     )
     _assert_content_unchanged(checkpoint_identity)
     if external_norm_stats_identity is not None:
@@ -518,6 +532,23 @@ def main() -> None:
             frozen_latent_dtype="float32",
             frozen_latent_source="pi0_final_denoise_action_suffix_tokens",
             frozen_latent_pooling="mean_over_action_horizon",
+        )
+    if safe_pre_velocity_latent:
+        safe_pred_horizon = int(getattr(cfg.model, "action_horizon", 0))
+        if safe_pred_horizon < 2:
+            raise ValueError(
+                "SAFE concat-2 requires a Pi0 action horizon of at least two"
+            )
+        policy_metadata.update(
+            safe_latent_protocol=_SAFE_LATENT_PROTOCOL,
+            safe_latent_key=_SAFE_LATENT_KEY,
+            safe_latent_shape=[_SAFE_LATENT_DIM],
+            safe_latent_dtype="float32",
+            safe_latent_source="pi0_action_expert_pre_velocity_tokens",
+            safe_latent_diffusion_selection="concat-2_first_last",
+            safe_latent_horizon_selection="concat-2_first_last",
+            safe_latent_pooling="none",
+            safe_latent_pred_horizon=safe_pred_horizon,
         )
     policy = _request_seeded_policy(policy, jax)
     if args.record:
