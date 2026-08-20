@@ -40,7 +40,9 @@ class TakeSafetyHookEnv(BaseEnv):
         different positions on the rod
 
     Success:
-      - Current proxy keeps the existing gate-opening progress criterion
+      - The hook gate has opened at least halfway during the episode
+      - The hook has moved far enough from its episode-specific spawn pose
+      - The hook is currently inside the designated table placement region
     """
 
     SUPPORTED_REWARD_MODES = ["sparse", "none"]
@@ -64,6 +66,9 @@ class TakeSafetyHookEnv(BaseEnv):
         robot_init_qpos_noise: float = 0.02,
         hook_init_qpos_noise: float = 0.1,
         success_threshold: float = np.pi / 4,
+        success_region_min: tuple[float, float, float] = (-0.50, -0.45, 0.015),
+        success_region_max: tuple[float, float, float] = (0.30, 0.45, 0.06),
+        success_min_displacement: float = 0.06,
         beam_length: float = 0.7,
         beam_robot_side_length: float = 0.06,
         beam_far_side_length: float | None = None,
@@ -107,6 +112,22 @@ class TakeSafetyHookEnv(BaseEnv):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         self.hook_init_qpos_noise = hook_init_qpos_noise
         self.success_threshold = float(success_threshold)
+        success_region_min_array = np.asarray(success_region_min, dtype=np.float32)
+        success_region_max_array = np.asarray(success_region_max, dtype=np.float32)
+        if success_region_min_array.shape != (3,) or success_region_max_array.shape != (3,):
+            raise ValueError("Hook success-region bounds must each contain exactly x, y, z")
+        if not (
+            np.all(np.isfinite(success_region_min_array))
+            and np.all(np.isfinite(success_region_max_array))
+        ):
+            raise ValueError("Hook success-region bounds must be finite")
+        if np.any(success_region_min_array >= success_region_max_array):
+            raise ValueError("Hook success-region minimum must be below its maximum")
+        self.success_region_min = tuple(float(v) for v in success_region_min_array)
+        self.success_region_max = tuple(float(v) for v in success_region_max_array)
+        self.success_min_displacement = float(success_min_displacement)
+        if not np.isfinite(self.success_min_displacement) or self.success_min_displacement < 0:
+            raise ValueError("Hook success minimum displacement must be finite and non-negative")
 
         if beam_x_range is not None:
             beam_center_x = sum(beam_x_range) / 2.0
@@ -527,7 +548,7 @@ class TakeSafetyHookEnv(BaseEnv):
 
             self._hook_qpos_prev = qpos0[:, 0].clone()
             self._max_progress = torch.zeros((b,), device=self.device)
-            self._min_hook_com_z = torch.full((b,), float("inf"), device=self.device)
+            self._initial_hook_pos = self.hook.pose.p.clone()
 
     def evaluate(self):
         gate_qpos = self.gate_joint.qpos
@@ -537,25 +558,39 @@ class TakeSafetyHookEnv(BaseEnv):
             (self.gate_closed_qpos - gate_angle) / open_span, 0.0, 1.0
         )
 
-        # Hook COM height (world Z).  frame_link has mass=100, so the root-link
-        # world Z is a tight approximation of the full-articulation COM Z.
-        cur_hook_com_z = self.hook.pose.p[:, 2]
+        cur_hook_pos = self.hook.pose.p
 
-        # Track historical best: the gate has a spring that pushes it closed,
-        # and the hook can bounce back up, so success should latch on the
-        # peak opening and the lowest COM Z reached so far this episode.
+        # Gate progress is historical because its spring closes after release.
+        # Placement is deliberately evaluated at the current pose: a low reset
+        # or an earlier dip outside the table target must not latch success.
         self._max_progress = torch.maximum(self._max_progress, cur_progress)
-        self._min_hook_com_z = torch.minimum(self._min_hook_com_z, cur_hook_com_z)
 
         gate_open_enough = self._max_progress >= 0.5
-        hook_low_enough = self._min_hook_com_z < 0.1
-        success = gate_open_enough & hook_low_enough
+        min_x, min_y, min_z = self.success_region_min
+        max_x, max_y, max_z = self.success_region_max
+        hook_in_success_region = (
+            (cur_hook_pos[:, 0] >= min_x)
+            & (cur_hook_pos[:, 0] <= max_x)
+            & (cur_hook_pos[:, 1] >= min_y)
+            & (cur_hook_pos[:, 1] <= max_y)
+            & (cur_hook_pos[:, 2] >= min_z)
+            & (cur_hook_pos[:, 2] <= max_z)
+        )
+        hook_displacement = torch.linalg.vector_norm(
+            cur_hook_pos - self._initial_hook_pos, dim=-1
+        )
+        hook_moved_from_spawn = hook_displacement >= self.success_min_displacement
+        success = gate_open_enough & hook_moved_from_spawn & hook_in_success_region
 
         return {
             "success": success,
             "progress": self._max_progress,
             "hook_qpos": gate_angle,
-            "hook_com_z": self._min_hook_com_z,
+            "hook_pos": cur_hook_pos,
+            "hook_com_z": cur_hook_pos[:, 2],
+            "hook_displacement": hook_displacement,
+            "hook_moved_from_spawn": hook_moved_from_spawn,
+            "hook_in_success_region": hook_in_success_region,
             "beam_pose": self.beam.pose.raw_pose,
         }
 
