@@ -1,0 +1,69 @@
+schema: task_frozen_latent_advantage_bc_v1
+task:
+  env_id: TurnGlobeValve-v1
+  semantics: rotate the globe valve counter-clockwise to the target angle
+  max_episode_steps: 500
+  reward_schema: terminal_success_sparse_reward_v1
+
+frozen_base:
+  config: pi0_maniskill
+  checkpoint: >-
+    checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_Replayed_TurnGlobeValve1_pd_joint_pos_success_truncated_32batch/29999
+  frozen_action_latent: true
+  server_port: 8012
+
+initialization:
+  rl_checkpoint: null
+  replay: null
+  optimizer_state: null
+  actor: random_with_zero_output_head
+  critic: random
+  context: random
+
+representation:
+  frozen_latent_protocol: maniskill_frozen_pi0_action_suffix_mean_v1
+  independent_vision_encoder: false
+  chunk_len: 50
+
+gate:
+  selector: conservative_twin_q
+  min_q_advantage: 0.08
+  max_interventions_per_episode: 2
+  cooldown_chunks: 1
+
+training:
+  seed: 31000
+  total_env_steps: 200000
+  buffer_capacity: 50000
+  batch_size: 128
+  critic_warmup_updates: 2000
+  updates_per_chunk: 2
+  max_warmup_explore_chunks_per_episode: 1
+  online_explore_probability: 0.35
+  independent_online_exploration: true
+  exploration_std_start: 0.30
+  exploration_std_end: 0.30
+  base_control_episode_probability: 0.20
+  replay_nonzero_fraction: 0.50
+  replay_nonzero_success_fraction: 0.50
+  actor_success_bc_weight: 2.0
+  actor_success_bc_min_q_advantage: 0.05
+  conservative_q_weight: 0.10
+
+evaluation:
+  paired: true
+  start_seed: 61000
+  num_seeds: 100
+  historical_base_success_rate: 0.71
+  required_absolute_delta: 0.15
+  required_rlt_success_rate: 0.86
+
+wandb:
+  enabled: true
+  new_run: true
+  project: maniskill-frozen-latent-td3
+  run_name: valve_mean_frozen_latent_advantage_bc_seed31000_scratch200k
+  tags: [frozen-latent, advantage-bc, scratch, turn-globe-valve]
+
+output_dir: >-
+  outputs/rlt/TurnGlobeValve-v1_mean_frozen_latent_advantage_bc_seed31000_scratch200k

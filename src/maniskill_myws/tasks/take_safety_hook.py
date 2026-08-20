@@ -28,7 +28,7 @@ _Q_HOOK_NARROW_DOWN_ON_X_BEAM: list[float] = [
 ]
 
 
-@register_env("TakeSafetyHook-v1", max_episode_steps=200)
+@register_env("TakeSafetyHook-v1", max_episode_steps=500)
 class TakeSafetyHookEnv(BaseEnv):
     """
     Tabletop task: take a safety hook from a fixed horizontal rod.
@@ -548,7 +548,7 @@ class TakeSafetyHookEnv(BaseEnv):
         self._min_hook_com_z = torch.minimum(self._min_hook_com_z, cur_hook_com_z)
 
         gate_open_enough = self._max_progress >= 0.5
-        hook_low_enough = self._min_hook_com_z < 0.03
+        hook_low_enough = self._min_hook_com_z < 0.1
         success = gate_open_enough & hook_low_enough
 
         return {
