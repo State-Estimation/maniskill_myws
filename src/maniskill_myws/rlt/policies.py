@@ -147,6 +147,30 @@ def openpi_policy_identity_sha256(metadata: Mapping[str, object]) -> str:
     return metadata_sha256(stable_identity)
 
 
+def openpi_action_policy_identity_sha256(metadata: Mapping[str, object]) -> str:
+    """Hash action-policy semantics without binding optional detector interfaces."""
+
+    raw_identity = metadata.get("maniskill_policy_identity")
+    if not isinstance(raw_identity, Mapping):
+        raise ValueError("OpenPI metadata has no maniskill_policy_identity mapping")
+    checkpoint_sha = raw_identity.get("checkpoint_content_sha256")
+    if not isinstance(checkpoint_sha, str) or len(checkpoint_sha) != 64:
+        raise ValueError("OpenPI metadata has no valid checkpoint content SHA-256")
+    return metadata_sha256(
+        {
+            "schema": "openpi_action_policy_semantic_identity_v1",
+            "config": raw_identity.get("config"),
+            "repo_id": raw_identity.get("repo_id"),
+            "default_prompt": raw_identity.get("default_prompt"),
+            "checkpoint_content_sha256": checkpoint_sha,
+            "norm_stats_content_sha256": raw_identity.get(
+                "norm_stats_content_sha256"
+            ),
+            "inference_seed_protocol": metadata.get("inference_seed_protocol"),
+        }
+    )
+
+
 class BaseChunkPolicy:
     def reset(self) -> None:
         pass
@@ -190,6 +214,24 @@ class BaseChunkPolicy:
             ),
             None,
         )
+
+    def plan_with_prediction(
+        self,
+        obs: dict,
+        *,
+        chunk_len: int,
+        action_dim: int,
+        inference_seed: int | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return the executed chunk and the policy's full emitted horizon."""
+
+        chunk = self.plan(
+            obs,
+            chunk_len=chunk_len,
+            action_dim=action_dim,
+            inference_seed=inference_seed,
+        )
+        return chunk, chunk.copy()
 
 class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
     """Query OpenPI for a fresh reference action chunk at each RLT chunk boundary."""
@@ -334,7 +376,7 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
             for total, current in zip(previous_max, max_by_dim, strict=True)
         ]
 
-    def plan(
+    def _infer_raw_prediction(
         self,
         obs: dict,
         *,
@@ -359,6 +401,30 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
                 f"RLT macro action requires {chunk_len}; repeating actions would "
                 "change the policy semantics"
             )
+        if not np.all(np.isfinite(planned)):
+            raise ValueError("Remote OpenPI prediction contains NaN or Inf")
+        return planned.copy()
+
+    def plan_with_prediction(
+        self,
+        obs: dict,
+        *,
+        chunk_len: int,
+        action_dim: int,
+        inference_seed: int | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Infer once, returning projected execution and the raw emitted horizon.
+
+        ActProbe computes action-space features from the policy output before the
+        environment-bound projection, matching the official rollout extractors.
+        """
+
+        planned = self._infer_raw_prediction(
+            obs,
+            chunk_len=chunk_len,
+            action_dim=action_dim,
+            inference_seed=inference_seed,
+        )
         projected, report = project_action_chunk_to_bounds(
             planned[:chunk_len],
             action_low=self._action_low,
@@ -367,6 +433,22 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
             name="Remote OpenPI reference chunk",
         )
         self._record_projection(report)
+        return projected, planned
+
+    def plan(
+        self,
+        obs: dict,
+        *,
+        chunk_len: int,
+        action_dim: int,
+        inference_seed: int | None = None,
+    ) -> np.ndarray:
+        projected, _ = self.plan_with_prediction(
+            obs,
+            chunk_len=chunk_len,
+            action_dim=action_dim,
+            inference_seed=inference_seed,
+        )
         return projected
 
     def plan_with_latent(

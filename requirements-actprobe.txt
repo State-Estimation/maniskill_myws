@@ -1,0 +1,5 @@
+# Minimal dependencies for the single-task ManiSkill adapter. The official
+# Qwen task encoder is intentionally omitted because its embedding is constant
+# and non-identifying when one detector is trained per task.
+torch>=2.7,<3.0
+scikit-learn>=1.4

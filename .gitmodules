@@ -2,3 +2,6 @@
 	path = third_party/openpi
 	url = https://github.com/bitqjy/openpi
 	branch = feat/pi0-maniskill-config
+[submodule "third_party/actprobe"]
+	path = third_party/actprobe
+	url = https://github.com/air-embodied-brain/actprobe.git

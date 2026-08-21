@@ -9,6 +9,7 @@ from maniskill_myws.rlt.policies import (
     RemoteOpenPIChunkPolicy,
     inference_seed_for_step,
     metadata_sha256,
+    openpi_action_policy_identity_sha256,
     openpi_policy_identity_sha256,
     project_action_chunk_to_bounds,
 )
@@ -58,6 +59,24 @@ def test_openpi_policy_identity_ignores_path_but_binds_content() -> None:
     assert openpi_policy_identity_sha256(relative) != openpi_policy_identity_sha256(
         changed
     )
+
+
+def test_openpi_action_identity_ignores_optional_detector_interface() -> None:
+    common = {
+        "maniskill_policy_identity": {
+            "config": "pi0_maniskill",
+            "repo_id": "local/task",
+            "checkpoint_content_sha256": "a" * 64,
+            "default_prompt": None,
+        },
+        "inference_seed_protocol": "seed-v1",
+    }
+    frozen = dict(common, frozen_latent_protocol="frozen-v1")
+    safe = dict(common, safe_latent_protocol="safe-v1")
+
+    assert openpi_action_policy_identity_sha256(
+        frozen
+    ) == openpi_action_policy_identity_sha256(safe)
 
 
 def test_action_projection_clips_to_per_dimension_environment_bounds() -> None:
@@ -168,3 +187,48 @@ def test_remote_policy_returns_projected_reference_and_tracks_stats(monkeypatch)
     assert stats["max_abs_correction"] == pytest.approx(0.3)
     assert stats["clipped_values_by_dim"] == [1, 1]
     assert stats["max_abs_correction_by_dim"] == pytest.approx([0.2, 0.3])
+
+
+def test_remote_policy_exposes_raw_full_prediction_for_actprobe(monkeypatch) -> None:
+    raw_chunk = np.asarray(
+        [[1.2, -0.5], [0.4, -1.3], [0.2, 0.3]], dtype=np.float32
+    )
+
+    class FakeRemotePolicy:
+        def __init__(self, **_kwargs) -> None:
+            self.server_metadata = {"checkpoint": "test"}
+
+        def reset(self) -> None:
+            pass
+
+        def act(self, _obs, *, inference_seed=None) -> np.ndarray:
+            return raw_chunk[0]
+
+        def planned_chunk(self, *, include_current=True) -> np.ndarray:
+            assert include_current
+            return raw_chunk
+
+    monkeypatch.setattr(
+        remote_policy_module, "RemoteWebsocketChunkPolicy", FakeRemotePolicy
+    )
+    policy = RemoteOpenPIChunkPolicy(
+        server="ws://test",
+        prompt="test",
+        image_key="base",
+        wrist_image_key="wrist",
+        state_keys=["state"],
+        action_dim=2,
+        action_low=np.asarray([-1.0, -1.0], dtype=np.float32),
+        action_high=np.asarray([1.0, 1.0], dtype=np.float32),
+    )
+
+    executed, prediction = policy.plan_with_prediction(
+        {}, chunk_len=2, action_dim=2, inference_seed=123
+    )
+
+    np.testing.assert_allclose(
+        executed,
+        np.asarray([[1.0, -0.5], [0.4, -1.0]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(prediction, raw_chunk)
+    assert prediction.shape == (3, 2)

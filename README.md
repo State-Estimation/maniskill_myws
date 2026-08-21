@@ -157,6 +157,85 @@ python -u scripts/rlt/eval_frozen_latent_residual.py \
 
 更完整的实现约束见 [`docs/rlt_post_training.md`](docs/rlt_post_training.md)。
 
+## ActProbe action-space failure detector
+
+ActProbe 是与 frozen-latent RL 解耦的 shadow detector。它不读取视觉或 latent，
+只使用 OpenPI 每次推理返回的完整 action horizon 计算两个官方特征：
+
+- `ACM/action_norm`：即将执行的前 `chunk_len` 步 action 的 RMS。
+- `TCE/chunk_mse`：上一预测去掉已执行前缀后，与当前预测重叠 horizon 的 MSE。
+
+本适配直接导入 `third_party/actprobe` 的官方 `ActProbeNet`，固定官方 commit
+`d5dfbcc98ee5e5766f8aa548c657d3446e40e272`。本地代码只负责 ManiSkill rollout、
+数据协议和可与 SAFE 对齐的划分/评测，不复制官方网络。单任务 detector 中 prompt
+恒定，不包含分类信息，因此使用固定 1024 维零 embedding；这保留官方
+LSTM-MLP 结构，同时避免下载 Qwen3。多任务训练时必须改为官方 Qwen embedding。
+
+初始化依赖：
+
+```bash
+git submodule update --init --recursive
+conda create -n actprobe python=3.10
+conda activate actprobe
+pip install -r requirements-actprobe.txt
+pip install -e .
+```
+
+ActProbe 不要求 OpenPI 返回特殊 latent。启动普通 OpenPI 服务即可：
+
+```bash
+cd third_party/openpi
+CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_PREALLOCATE=false \
+uv run python -u ../../scripts/pi0/serve.py \
+  --config pi0_maniskill \
+  --checkpoint ../../checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_TakeSafetyHook1_pd_joint_pos_success_truncated_32batch/29999 \
+  --port 8012 --xla-safe
+```
+
+从仓库根目录采集 base-policy action feature。执行 chunk 为 10，但始终保存并使用
+π0 原始 50 步预测计算 TCE；环境实际执行的 action 仍按现有 action-space projection
+处理。数据会绑定任务源码、OpenPI checkpoint 内容和两种 horizon：
+
+```bash
+CUDA_VISIBLE_DEVICES=1 conda run --no-capture-output -n mani_skill \
+python -u scripts/rlt/collect_actprobe_rollouts.py \
+  --env-id TakeSafetyHook-v1 \
+  --server ws://127.0.0.1:8012 \
+  --sim-backend physx_cpu --render-backend sapien_cuda:0 \
+  --start-seed 61000 --num-episodes 600 \
+  --chunk-len 10 --max-episode-steps 500 \
+  --output outputs/actprobe/TakeSafetyHook-v1_chunk10_seed61000/rollouts.npz
+```
+
+训练直接使用官方约 23K 参数 ActProbe 网络、逐时刻 episode label BCE、AdamW、
+cosine schedule、400 epoch 上限与 50 epoch early stopping。每个 seed 都从零初始化；
+归一化统计只由 train split 拟合：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n actprobe \
+python -u scripts/rlt/train_official_actprobe.py \
+  --dataset outputs/actprobe/TakeSafetyHook-v1_chunk10_seed61000/rollouts.npz \
+  --output-dir outputs/actprobe/TakeSafetyHook-v1_chunk10_seed61000/checkpoints \
+  --seeds 0 1 2 --device cuda:0
+```
+
+离线评测同时报告官方 `q=0.25 taskmax AUC`，以及与 SAFE 相同的 full-episode
+ROC-AUC/AP 和由 `val_seen` 成功轨迹校准到目标 5% episode FPR 后的 Recall/FPR。
+`val_unseen` 只用于最终测试，不参与 checkpoint 或阈值选择：
+
+```bash
+conda run --no-capture-output -n actprobe \
+python -u scripts/rlt/eval_official_actprobe.py \
+  --checkpoints outputs/actprobe/TakeSafetyHook-v1_chunk10_seed61000/checkpoints/seed*/actprobe.pt \
+  --device cpu \
+  --output outputs/actprobe/TakeSafetyHook-v1_chunk10_seed61000/eval_aggregate.json
+```
+
+与 SAFE 正式比较时，两者必须使用相同任务源码、OpenPI checkpoint、episode seeds、
+执行 chunk 和最大步数分别采集。两套 detector 使用相同的成功/失败分层
+train/`val_seen`/`val_unseen` 算法和 seed；ActProbe 采集不应复用 SAFE `.npz`，因为
+SAFE 数据只保存 latent，没有完整 action horizon，无法事后恢复 TCE。
+
 ## 快速开始（本地 ManiSkill 源码）
 
 1) 安装 ManiSkill（本地源码或已有环境），确保 `import mani_skill` 可用。  
