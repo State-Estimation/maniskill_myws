@@ -121,6 +121,15 @@ def main() -> None:
     p.add_argument("--render-mode", type=str, default=None)
     p.add_argument("--max-steps", type=int, default=None)
     p.add_argument("--real-time", action="store_true")
+    p.add_argument(
+        "--execution-chunk-size",
+        type=int,
+        default=None,
+        help=(
+            "Execute only this many actions from each predicted chunk before "
+            "replanning. By default the full policy action horizon is executed."
+        ),
+    )
 
     p.add_argument("--image-key", type=str, default="sensor_data/base_camera/rgb")
     p.add_argument("--wrist-image-key", type=str, default="sensor_data/hand_camera/rgb")
@@ -221,6 +230,7 @@ def main() -> None:
         obs_adapter=adapter,
         act_dim=action_dim,
         resize=args.resize,
+        execution_chunk_size=args.execution_chunk_size,
     )
 
     if args.visualize_tcp_path:
@@ -235,6 +245,11 @@ def main() -> None:
     print(f"Server: {args.server}", flush=True)
     print(f"Seeds: {args.start_seed} to {args.start_seed + args.num_seeds - 1}", flush=True)
     print(f"Max steps: {max_steps}", flush=True)
+    print(
+        "Execution chunk size: "
+        f"{args.execution_chunk_size or 'full policy horizon'}",
+        flush=True,
+    )
     print(f"Output: {output_dir}", flush=True)
     print("", flush=True)
 
@@ -388,6 +403,10 @@ def main() -> None:
         f.write(f"Server: {args.server}\n")
         f.write(f"Timestamp: {timestamp}\n")
         f.write(f"Max steps: {max_steps}\n")
+        f.write(
+            "Execution chunk size: "
+            f"{args.execution_chunk_size or 'full policy horizon'}\n"
+        )
         f.write(f"Prompt: {prompt}\n")
         f.write("\nResults:\n")
         for r in results:

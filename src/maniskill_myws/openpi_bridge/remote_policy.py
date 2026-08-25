@@ -17,6 +17,23 @@ FROZEN_LATENT_KEY = "frozen_pi0_latent"
 FROZEN_LATENT_DIM = 1024
 
 
+def _execution_prefix(
+    chunk: np.ndarray, execution_chunk_size: int | None
+) -> np.ndarray:
+    """Return the open-loop prefix to execute before requesting a new plan."""
+
+    if execution_chunk_size is None:
+        return chunk
+    if execution_chunk_size <= 0:
+        raise ValueError("execution_chunk_size must be positive")
+    if execution_chunk_size > chunk.shape[0]:
+        raise ValueError(
+            "execution_chunk_size cannot exceed the policy action horizon: "
+            f"{execution_chunk_size} > {chunk.shape[0]}"
+        )
+    return chunk[:execution_chunk_size]
+
+
 def _validate_frozen_latent_metadata(metadata: dict[str, Any]) -> None:
     expected = {
         "frozen_latent_protocol": FROZEN_LATENT_PROTOCOL,
@@ -66,8 +83,11 @@ class RemoteWebsocketChunkPolicy:
     act_dim: int = 8
     resize: int = 224
     require_frozen_latent: bool = False
+    execution_chunk_size: int | None = None
 
     def __post_init__(self) -> None:
+        if self.execution_chunk_size is not None and self.execution_chunk_size <= 0:
+            raise ValueError("execution_chunk_size must be positive")
         try:
             from openpi_client import image_tools
             from openpi_client import websocket_client_policy
@@ -161,7 +181,8 @@ class RemoteWebsocketChunkPolicy:
             chunk, self._last_frozen_latent = self.infer_preprocessed(
                 example, inference_seed=inference_seed
             )
-            for a in chunk:
+            execution_chunk = _execution_prefix(chunk, self.execution_chunk_size)
+            for a in execution_chunk:
                 self._queue.append(a)
         self._last_action = self._queue.popleft()
         return self._last_action

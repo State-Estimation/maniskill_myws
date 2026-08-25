@@ -7,6 +7,7 @@ from maniskill_myws.openpi_bridge.remote_policy import (
     FROZEN_LATENT_DIM,
     FROZEN_LATENT_KEY,
     FROZEN_LATENT_PROTOCOL,
+    _execution_prefix,
     _validate_frozen_latent,
     _validate_frozen_latent_metadata,
 )
@@ -54,3 +55,19 @@ def test_frozen_latent_rejects_shape_dtype_and_nonfinite_values() -> None:
     nonfinite[3] = np.nan
     with pytest.raises(ValueError, match="NaN or Inf"):
         _validate_frozen_latent(nonfinite)
+
+
+def test_execution_prefix_replans_after_requested_number_of_actions() -> None:
+    chunk = np.arange(50 * 8, dtype=np.float32).reshape(50, 8)
+    prefix = _execution_prefix(chunk, 10)
+
+    assert prefix.shape == (10, 8)
+    np.testing.assert_array_equal(prefix, chunk[:10])
+    assert _execution_prefix(chunk, None) is chunk
+
+
+@pytest.mark.parametrize("size", [0, -1, 51])
+def test_execution_prefix_rejects_invalid_size(size: int) -> None:
+    chunk = np.zeros((50, 8), dtype=np.float32)
+    with pytest.raises(ValueError, match="execution_chunk_size"):
+        _execution_prefix(chunk, size)

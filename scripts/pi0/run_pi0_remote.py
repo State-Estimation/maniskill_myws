@@ -107,6 +107,15 @@ def main() -> None:
             "(OpenSafeDoor-v2 defaults to 20Hz / 0.05s per step)."
         ),
     )
+    p.add_argument(
+        "--execution-chunk-size",
+        type=int,
+        default=None,
+        help=(
+            "Execute only this many actions from each predicted chunk before "
+            "replanning. By default the full policy action horizon is executed."
+        ),
+    )
 
     # Where to read images/state from the ManiSkill obs dict (keypaths from inspect_obs output).
     p.add_argument("--image-key", type=str, default="sensor_data/base_camera/rgb")
@@ -227,7 +236,11 @@ def main() -> None:
     )
     action_dim = int(np.prod(env.action_space.shape))
     policy = RemoteWebsocketChunkPolicy(
-        server=args.server, obs_adapter=adapter, act_dim=action_dim, resize=224
+        server=args.server,
+        obs_adapter=adapter,
+        act_dim=action_dim,
+        resize=224,
+        execution_chunk_size=args.execution_chunk_size,
     )
     policy.reset()
 
