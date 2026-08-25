@@ -143,6 +143,18 @@ def openpi_policy_identity_sha256(metadata: Mapping[str, object]) -> str:
         "frozen_latent_dtype": metadata.get("frozen_latent_dtype"),
         "frozen_latent_source": metadata.get("frozen_latent_source"),
         "frozen_latent_pooling": metadata.get("frozen_latent_pooling"),
+        "safe_latent_protocol": metadata.get("safe_latent_protocol"),
+        "safe_latent_key": metadata.get("safe_latent_key"),
+        "safe_latent_shape": metadata.get("safe_latent_shape"),
+        "safe_latent_dtype": metadata.get("safe_latent_dtype"),
+        "safe_latent_source": metadata.get("safe_latent_source"),
+        "safe_latent_diffusion_selection": metadata.get(
+            "safe_latent_diffusion_selection"
+        ),
+        "safe_latent_horizon_selection": metadata.get(
+            "safe_latent_horizon_selection"
+        ),
+        "safe_latent_pooling": metadata.get("safe_latent_pooling"),
     }
     return metadata_sha256(stable_identity)
 
@@ -207,6 +219,7 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
         action_high: np.ndarray,
         resize: int = 224,
         require_frozen_latent: bool = False,
+        require_safe_latent: bool = False,
     ) -> None:
         from maniskill_myws.openpi_bridge.obs_to_openpi import ObsAdapter
         from maniskill_myws.openpi_bridge.remote_policy import RemoteWebsocketChunkPolicy
@@ -238,6 +251,7 @@ class RemoteOpenPIChunkPolicy(BaseChunkPolicy):
             act_dim=action_dim,
             resize=resize,
             require_frozen_latent=require_frozen_latent,
+            require_safe_latent=require_safe_latent,
         )
         self._projection_totals: dict[str, object] = {
             "chunks": 0,
@@ -402,6 +416,7 @@ def make_base_chunk_policy(
     state_keys: Sequence[str] = ("agent/qpos", "agent/qvel", "extra/tcp_pose"),
     resize: int = 224,
     require_frozen_latent: bool = False,
+    require_safe_latent: bool = False,
 ) -> BaseChunkPolicy:
     if kind == "remote_openpi":
         if not server:
@@ -417,6 +432,7 @@ def make_base_chunk_policy(
             action_high=np.asarray(action_space.high, dtype=np.float32),
             resize=resize,
             require_frozen_latent=require_frozen_latent,
+            require_safe_latent=require_safe_latent,
         )
     raise ValueError(
         f"Unsupported base chunk policy {kind!r}; only 'remote_openpi' is maintained"

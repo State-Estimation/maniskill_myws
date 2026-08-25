@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -25,6 +26,14 @@ TERMINAL_SUCCESS_SPARSE_REWARD_SCHEMA = {
     "grasp_reward_once_per_episode": False,
     "milestone_event_key": None,
 }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _assert_checkpoint_environment(
@@ -85,7 +94,7 @@ def _plan_context(policy, obs: dict, *, config, inference_seed: int):
     )
     latent = np.asarray(latent, dtype=np.float32)
     if latent.shape != (config.latent_dim,):
-        raise ValueError("OpenPI mean latent does not match checkpoint schema")
+        raise ValueError("OpenPI latent does not match checkpoint schema")
     return np.asarray(ref, dtype=np.float32), latent
 
 
@@ -351,6 +360,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-q-advantage", type=float, default=0.10)
     parser.add_argument("--max-intervention-chunks-per-episode", type=int, default=1)
     parser.add_argument("--intervention-cooldown-chunks", type=int, default=0)
+    parser.add_argument("--value-checkpoint", default=None)
+    parser.add_argument("--intervention-keep-q-advantage", type=float, default=0.02)
+    parser.add_argument("--max-intervention-env-steps", type=int, default=500)
     parser.add_argument("--wandb-enabled", action="store_true")
     parser.add_argument("--wandb-project", default="maniskill-myws-rlt")
     parser.add_argument("--wandb-entity", default=None)
@@ -388,9 +400,12 @@ def main() -> None:
         parser.error("--live-paired-trajectories requires --render-mode human")
     if not np.isfinite(args.min_q_advantage):
         parser.error("--min-q-advantage must be finite")
+    if not np.isfinite(args.intervention_keep_q_advantage):
+        parser.error("--intervention-keep-q-advantage must be finite")
     if (
         args.max_intervention_chunks_per_episode < 0
         or args.intervention_cooldown_chunks < 0
+        or args.max_intervention_env_steps < 0
     ):
         parser.error("intervention budget and cooldown must be non-negative")
     if args.control_mode != "pd_joint_pos":
@@ -418,6 +433,10 @@ def main() -> None:
         FrozenLatentResidualAgent,
         make_runtime_identity,
     )
+    from maniskill_myws.openpi_bridge.remote_policy import (
+        SAFE_LATENT_DIM,
+        SAFE_LATENT_PROTOCOL,
+    )
     from maniskill_myws.rlt.policies import (
         inference_seed_for_step,
         make_base_chunk_policy,
@@ -425,10 +444,22 @@ def main() -> None:
     )
     from maniskill_myws.rlt.reset import reset_env_fresh_scene
     from maniskill_myws.rlt.state import StateAdapter
+    from maniskill_myws.rlt.value_model import (
+        VALUE_FEATURE_SCHEMA,
+        DistributionalBaseValueModel,
+        infer_value_estimate,
+        value_images_from_observation,
+    )
 
     maniskill_myws.register()
     agent = FrozenLatentResidualAgent.load(args.checkpoint, device=args.device)
     config = agent.config
+    value_enabled = config.latent_protocol == SAFE_LATENT_PROTOCOL
+    if value_enabled != bool(args.value_checkpoint):
+        parser.error(
+            "SAFE value-guided checkpoints require --value-checkpoint; mean-latent "
+            "checkpoints must not receive one"
+        )
     _assert_checkpoint_environment(args.env_id, agent.runtime_identity)
     expected_reward_schema = agent.runtime_identity.get(
         "environment_reward_schema"
@@ -489,6 +520,14 @@ def main() -> None:
         )
 
     prompt = args.prompt or getattr(env.unwrapped, "DEFAULT_TASK_PROMPT", "")
+    value_model = None
+    value_checkpoint_sha256 = None
+    if value_enabled:
+        value_model, _ = DistributionalBaseValueModel.load(
+            args.value_checkpoint, device=args.device
+        )
+        value_model.requires_grad_(False)
+        value_checkpoint_sha256 = _sha256_file(Path(args.value_checkpoint))
     rlt_policy = make_base_chunk_policy(
         "remote_openpi",
         action_space=env.action_space,
@@ -499,11 +538,18 @@ def main() -> None:
         wrist_image_key=args.wrist_image_key,
         state_keys=args.state_keys,
         resize=args.resize,
-        require_frozen_latent=True,
+        require_frozen_latent=not value_enabled,
+        require_safe_latent=value_enabled,
     )
     metadata = rlt_policy.server_metadata or {}
-    if metadata.get("frozen_latent_protocol") != FROZEN_LATENT_PROTOCOL:
-        raise RuntimeError("OpenPI server does not expose the required mean latent")
+    expected_latent_protocol = SAFE_LATENT_PROTOCOL if value_enabled else FROZEN_LATENT_PROTOCOL
+    expected_latent_dim = SAFE_LATENT_DIM if value_enabled else config.latent_dim
+    protocol_key = "safe_latent_protocol" if value_enabled else "frozen_latent_protocol"
+    shape_key = "safe_latent_shape" if value_enabled else "frozen_latent_shape"
+    if metadata.get(protocol_key) != expected_latent_protocol:
+        raise RuntimeError("OpenPI server does not expose the checkpoint latent protocol")
+    if metadata.get(shape_key) != [expected_latent_dim]:
+        raise RuntimeError("OpenPI server latent shape does not match checkpoint")
 
     base_policy = None
     if base_env is not None:
@@ -539,22 +585,96 @@ def main() -> None:
         chunk_len=config.chunk_len,
         max_episode_steps=config.max_episode_steps,
         openpi_policy_identity_sha256=openpi_policy_identity_sha256(metadata),
+        latent_protocol=config.latent_protocol,
+        latent_dim=config.latent_dim,
     )
     runtime_identity["environment_reward_schema"] = reward_schema
+    if value_enabled:
+        declared_value_identity = agent.runtime_identity.get("value_model")
+        if not isinstance(declared_value_identity, dict):
+            raise ValueError("Value-guided checkpoint has no value model identity")
+        actual_value_fields = {
+            "checkpoint_sha256": value_checkpoint_sha256,
+            "feature_schema": VALUE_FEATURE_SCHEMA,
+            "feature_dim": value_model.config.critic_feature_dim,
+        }
+        mismatches = {
+            key: (declared_value_identity.get(key), actual)
+            for key, actual in actual_value_fields.items()
+            if declared_value_identity.get(key) != actual
+        }
+        if mismatches:
+            raise ValueError(f"Value checkpoint identity mismatch: {mismatches}")
+        runtime_identity["value_model"] = dict(declared_value_identity)
     agent.assert_runtime_identity(runtime_identity)
 
     state_adapter = StateAdapter(args.state_keys)
+    probe_obs, _ = reset_env_fresh_scene(
+        env, seed=evaluation_seeds[0], operation="value evaluation state shape probe"
+    )
+    raw_state_dim = int(np.asarray(state_adapter(probe_obs)).size)
+    if value_enabled:
+        expected_value_config = {
+            "state_dim": raw_state_dim,
+            "action_dim": config.action_dim,
+            "chunk_len": config.chunk_len,
+            "max_episode_steps": config.max_episode_steps,
+            "latent_dim": SAFE_LATENT_DIM,
+            "num_views": 2,
+        }
+        value_config_mismatches = {
+            key: (expected, getattr(value_model.config, key))
+            for key, expected in expected_value_config.items()
+            if getattr(value_model.config, key) != expected
+        }
+        if value_config_mismatches:
+            raise ValueError(
+                f"Value model runtime configuration mismatch: {value_config_mismatches}"
+            )
+        expected_state_dim = raw_state_dim + value_model.config.critic_feature_dim
+    else:
+        expected_state_dim = raw_state_dim
+    if config.state_dim != expected_state_dim:
+        raise ValueError(
+            f"Checkpoint state_dim {config.state_dim} != runtime {expected_state_dim}"
+        )
     control_frequency = float(getattr(env.unwrapped, "control_freq", 20.0))
     target_step_seconds = 1.0 / control_frequency if control_frequency > 0 else 0.05
 
-    def state_vector(observation) -> np.ndarray:
+    def raw_state_vector(observation) -> np.ndarray:
         state = np.asarray(state_adapter(observation), dtype=np.float32)
-        if state.shape != (config.state_dim,) or not np.all(np.isfinite(state)):
+        if state.shape != (raw_state_dim,) or not np.all(np.isfinite(state)):
             raise ValueError(
-                f"RL state must have finite shape {(config.state_dim,)}, "
+                f"Raw state must have finite shape {(raw_state_dim,)}, "
                 f"got {state.shape}"
             )
         return state
+
+    def augmented_state(
+        observation: dict,
+        *,
+        latent: np.ndarray,
+        ref: np.ndarray,
+        step_id: int,
+    ) -> tuple[np.ndarray, object | None]:
+        raw = raw_state_vector(observation)
+        if not value_enabled:
+            return raw, None
+        images = value_images_from_observation(
+            observation,
+            image_keys=(args.image_key, args.wrist_image_key),
+            height=value_model.config.image_height,
+            width=value_model.config.image_width,
+        )
+        estimate = infer_value_estimate(
+            value_model,
+            images=images,
+            state=raw,
+            latent=latent,
+            ref_chunk=ref,
+            step_id=step_id,
+        )
+        return np.concatenate([raw, estimate.critic_features]).astype(np.float32), estimate
 
     def validate_reference(chunk: np.ndarray) -> np.ndarray:
         return _validate_chunk(
@@ -573,9 +693,13 @@ def main() -> None:
         latent: np.ndarray,
         step_id: int,
         interventions: int,
+        intervention_env_steps: int,
+        recovery_active: bool,
         last_intervention_boundary: int | None,
     ) -> tuple[np.ndarray, np.ndarray, float, bool, str, dict]:
-        state = state_vector(observation)
+        state, value_estimate = augmented_state(
+            observation, latent=latent, ref=ref, step_id=step_id
+        )
         residual = np.asarray(
             agent.select_residual(
                 state,
@@ -596,15 +720,29 @@ def main() -> None:
             step_id=step_id,
         )
         boundary_index = step_id // config.chunk_len
-        intervene, status = _gate_decision(
-            q_advantage=q_advantage,
-            min_q_advantage=args.min_q_advantage,
-            interventions=interventions,
-            max_interventions=args.max_intervention_chunks_per_episode,
-            boundary_index=boundary_index,
-            last_intervention_boundary=last_intervention_boundary,
-            cooldown_chunks=args.intervention_cooldown_chunks,
-        )
+        if value_enabled:
+            threshold = (
+                args.intervention_keep_q_advantage
+                if recovery_active
+                else args.min_q_advantage
+            )
+            if intervention_env_steps >= args.max_intervention_env_steps:
+                intervene, status = False, "STEP_BUDGET_EXHAUSTED"
+            elif q_advantage < threshold:
+                intervene, status = False, "Q_REJECTED"
+            else:
+                intervene, status = True, "EXECUTED"
+        else:
+            threshold = args.min_q_advantage
+            intervene, status = _gate_decision(
+                q_advantage=q_advantage,
+                min_q_advantage=threshold,
+                interventions=interventions,
+                max_interventions=args.max_intervention_chunks_per_episode,
+                boundary_index=boundary_index,
+                last_intervention_boundary=last_intervention_boundary,
+                cooldown_chunks=args.intervention_cooldown_chunks,
+            )
         executed_residual = residual if intervene else np.zeros_like(residual)
         action_chunk = (
             agent.apply_residual(ref, residual) if intervene else ref.copy()
@@ -623,10 +761,23 @@ def main() -> None:
             "q_advantage": float(q_advantage),
             "gate_status": status,
             "interventions_before": int(interventions),
+            "intervention_env_steps_before": int(intervention_env_steps),
+            "gate_threshold": float(threshold),
             "proposal_residual_rms": float(
                 np.sqrt(np.mean(np.square(residual), dtype=np.float64))
             ),
             "proposal_residual_max": float(np.max(np.abs(residual))),
+            "value_potential": (
+                value_estimate.potential if value_estimate is not None else None
+            ),
+            "value_failure_probability": (
+                value_estimate.failure_probability
+                if value_estimate is not None
+                else None
+            ),
+            "value_entropy": (
+                value_estimate.entropy if value_estimate is not None else None
+            ),
         }
         return (
             action_chunk,
@@ -658,6 +809,7 @@ def main() -> None:
                 float(np.max(residual_norms)) if residual_norms else 0.0
             ),
             "intervention_chunks": interventions,
+            "intervention_env_steps": int(role["intervention_env_steps"]),
             "intervention_steps": intervention_steps,
             "intervention_q_advantages": intervention_q_advantages,
             "grasp_reward_events": int(role["grasp_reward_events"]),
@@ -669,7 +821,13 @@ def main() -> None:
                 float(np.max(q_advantages)) if q_advantages else None
             ),
             "final_budget_remaining": max(
-                0, args.max_intervention_chunks_per_episode - interventions
+                0,
+                (
+                    args.max_intervention_env_steps
+                    - int(role["intervention_env_steps"])
+                    if value_enabled
+                    else args.max_intervention_chunks_per_episode - interventions
+                ),
             ),
             "boundary_trace": boundary_trace,
         }
@@ -687,6 +845,8 @@ def main() -> None:
         role["obs"] = observation
         role["return"] += _scalar(reward)
         role["steps"] += 1
+        if role.get("chunk_intervened", False):
+            role["intervention_env_steps"] += 1
         role["cursor"] += 1
         if isinstance(info, dict):
             role["success"] = role["success"] or _done(info.get("success", False))
@@ -717,6 +877,8 @@ def main() -> None:
             "done": False,
             "chunk": None,
             "cursor": 0,
+            "chunk_intervened": False,
+            "intervention_env_steps": 0,
         }
         residual_norms: list[float] = []
         q_advantages: list[float] = []
@@ -724,6 +886,7 @@ def main() -> None:
         intervention_q_advantages: list[float] = []
         boundary_trace: list[dict] = []
         last_intervention_boundary: int | None = None
+        recovery_active = False
 
         while not role["done"]:
             inference_seed = inference_seed_for_step(seed, role["steps"])
@@ -748,8 +911,11 @@ def main() -> None:
                     latent=latent,
                     step_id=role["steps"],
                     interventions=len(intervention_steps),
+                    intervention_env_steps=role["intervention_env_steps"],
+                    recovery_active=recovery_active,
                     last_intervention_boundary=last_intervention_boundary,
                 )
+                recovery_active = intervene
                 q_advantages.append(q_advantage)
                 boundary_trace.append(trace)
                 if intervene:
@@ -792,9 +958,11 @@ def main() -> None:
                         inference_seed=inference_seed,
                     )
                 )
+                intervene = False
 
             role["chunk"] = action_chunk
             role["cursor"] = 0
+            role["chunk_intervened"] = bool(intervene)
             for _ in range(len(action_chunk)):
                 wall_start = time.perf_counter()
                 step_role(role, env, tcp_points=None)
@@ -845,8 +1013,8 @@ def main() -> None:
         base_policy.reset()
         rlt_policy.reset()
         np.testing.assert_allclose(
-            state_vector(base_obs),
-            state_vector(rlt_obs),
+            raw_state_vector(base_obs),
+            raw_state_vector(rlt_obs),
             rtol=0,
             atol=1e-6,
             err_msg="Base/RL initial states differ for the same seed",
@@ -860,6 +1028,8 @@ def main() -> None:
             "done": False,
             "chunk": None,
             "cursor": 0,
+            "chunk_intervened": False,
+            "intervention_env_steps": 0,
         }
         rlt = {
             "obs": rlt_obs,
@@ -870,6 +1040,8 @@ def main() -> None:
             "done": False,
             "chunk": None,
             "cursor": 0,
+            "chunk_intervened": False,
+            "intervention_env_steps": 0,
         }
         residual_norms: list[float] = []
         q_advantages: list[float] = []
@@ -877,6 +1049,7 @@ def main() -> None:
         intervention_q_advantages: list[float] = []
         boundary_trace: list[dict] = []
         last_intervention_boundary: int | None = None
+        recovery_active = False
         base_tcp = [_tcp_position(base_obs, args.trajectory_tcp_key)]
         rlt_tcp = [_tcp_position(rlt_obs, args.trajectory_tcp_key)]
         viewer = env.unwrapped.render_human()
@@ -919,8 +1092,8 @@ def main() -> None:
                         and base["cursor"] == 0
                     ):
                         np.testing.assert_allclose(
-                            state_vector(base["obs"]),
-                            state_vector(rlt["obs"]),
+                            raw_state_vector(base["obs"]),
+                            raw_state_vector(rlt["obs"]),
                             rtol=0,
                             atol=1e-6,
                             err_msg="Base/RL states diverged before intervention",
@@ -943,9 +1116,13 @@ def main() -> None:
                         latent=latent,
                         step_id=rlt["steps"],
                         interventions=len(intervention_steps),
+                        intervention_env_steps=rlt["intervention_env_steps"],
+                        recovery_active=recovery_active,
                         last_intervention_boundary=last_intervention_boundary,
                     )
+                    recovery_active = intervene
                     rlt["cursor"] = 0
+                    rlt["chunk_intervened"] = bool(intervene)
                     q_advantages.append(q_advantage)
                     boundary_trace.append(trace)
                     residual_norms.append(
@@ -1001,8 +1178,8 @@ def main() -> None:
                             "Base/RL step counts diverged before intervention"
                         )
                     np.testing.assert_allclose(
-                        state_vector(base["obs"]),
-                        state_vector(rlt["obs"]),
+                        raw_state_vector(base["obs"]),
+                        raw_state_vector(rlt["obs"]),
                         rtol=0,
                         atol=1e-6,
                         err_msg="Base/RL states diverged before intervention",
@@ -1150,6 +1327,9 @@ def main() -> None:
                         "eval/intervention_chunks": int(
                             rlt_result["intervention_chunks"]
                         ),
+                        "eval/intervention_env_steps": int(
+                            rlt_result["intervention_env_steps"]
+                        ),
                         "eval/max_q_advantage": float(
                             rlt_result["max_q_advantage"] or 0.0
                         ),
@@ -1187,7 +1367,11 @@ def main() -> None:
         "evaluation_seeds": evaluation_seeds,
         "num_seeds": len(evaluation_seeds),
         **_aggregate_rows(rows, bootstrap_seed=args.bootstrap_seed),
-        "representation": "mean_pooled_action_suffix",
+        "representation": (
+            "safe_four_endpoint_tokens_plus_frozen_distributional_value_features"
+            if value_enabled
+            else "mean_pooled_action_suffix"
+        ),
         "live_lockstep_trajectories": bool(args.live_paired_trajectories),
         "trajectory_colors": (
             {"base": "blue", "refined_rl": "orange"}
@@ -1195,11 +1379,23 @@ def main() -> None:
             else None
         ),
         "intervention_policy": {
-            "max_chunks_per_episode": args.max_intervention_chunks_per_episode,
-            "cooldown_chunks": args.intervention_cooldown_chunks,
+            "mode": "q_hysteresis_dynamic" if value_enabled else "fixed_chunk_budget",
+            "max_chunks_per_episode": (
+                None if value_enabled else args.max_intervention_chunks_per_episode
+            ),
+            "max_intervention_env_steps": (
+                args.max_intervention_env_steps if value_enabled else None
+            ),
+            "cooldown_chunks": 0 if value_enabled else args.intervention_cooldown_chunks,
             "q_gate_min_advantage": args.min_q_advantage,
+            "q_gate_keep_advantage": (
+                args.intervention_keep_q_advantage if value_enabled else None
+            ),
             "critic_conditioned_on_gate_state": False,
         },
+        "value_checkpoint": (
+            str(Path(args.value_checkpoint).resolve()) if value_enabled else None
+        ),
         "runtime_identity": agent.runtime_identity,
     }
     (output_dir / "summary.json").write_text(

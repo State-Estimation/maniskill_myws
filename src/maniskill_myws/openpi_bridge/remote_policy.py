@@ -15,6 +15,13 @@ INFERENCE_SEED_CAPABILITY = "maniskill_deterministic_inference_seed_v1"
 FROZEN_LATENT_PROTOCOL = "maniskill_frozen_pi0_action_suffix_mean_v1"
 FROZEN_LATENT_KEY = "frozen_pi0_latent"
 FROZEN_LATENT_DIM = 1024
+SAFE_LATENT_PROTOCOL = "safe_pi0_pre_velocity_diff2_horizon2_concat_v1"
+SAFE_LATENT_KEY = "safe_pi0_pre_velocity"
+SAFE_LATENT_DIM = 4 * 1024
+SAFE_LATENT_SOURCE = "pi0_action_expert_pre_velocity_tokens"
+SAFE_LATENT_DIFFUSION_SELECTION = "concat-2_first_last"
+SAFE_LATENT_HORIZON_SELECTION = "concat-2_first_last"
+SAFE_LATENT_POOLING = "none"
 
 
 def _execution_prefix(
@@ -69,6 +76,53 @@ def _validate_frozen_latent(value: Any) -> np.ndarray:
     return latent.copy()
 
 
+def _validate_safe_latent_metadata(metadata: dict[str, Any]) -> None:
+    expected = {
+        "safe_latent_protocol": SAFE_LATENT_PROTOCOL,
+        "safe_latent_key": SAFE_LATENT_KEY,
+        "safe_latent_shape": [SAFE_LATENT_DIM],
+        "safe_latent_dtype": "float32",
+        "safe_latent_source": SAFE_LATENT_SOURCE,
+        "safe_latent_diffusion_selection": SAFE_LATENT_DIFFUSION_SELECTION,
+        "safe_latent_horizon_selection": SAFE_LATENT_HORIZON_SELECTION,
+        "safe_latent_pooling": SAFE_LATENT_POOLING,
+    }
+    mismatches = {
+        key: (metadata.get(key), expected_value)
+        for key, expected_value in expected.items()
+        if metadata.get(key) != expected_value
+    }
+    if mismatches:
+        raise RuntimeError(
+            "The OpenPI server does not expose the required SAFE Pi0 "
+            f"pre-velocity protocol: {mismatches}. Restart scripts/pi0/serve.py "
+            "with --safe-pre-velocity-latent."
+        )
+    pred_horizon = metadata.get("safe_latent_pred_horizon")
+    if (
+        isinstance(pred_horizon, bool)
+        or not isinstance(pred_horizon, (int, np.integer))
+        or int(pred_horizon) < 2
+    ):
+        raise RuntimeError(
+            "The OpenPI server SAFE latent prediction horizon is invalid: "
+            f"{pred_horizon!r}"
+        )
+
+
+def _validate_safe_latent(value: Any) -> np.ndarray:
+    latent = np.asarray(value)
+    if latent.shape != (SAFE_LATENT_DIM,):
+        raise ValueError(
+            f"OpenPI SAFE latent shape {latent.shape} != {(SAFE_LATENT_DIM,)}"
+        )
+    if latent.dtype != np.dtype(np.float32):
+        raise TypeError(f"OpenPI SAFE latent must be float32, got {latent.dtype}")
+    if not np.all(np.isfinite(latent)):
+        raise ValueError("OpenPI SAFE latent contains NaN or Inf")
+    return latent.copy()
+
+
 @dataclass
 class RemoteWebsocketChunkPolicy:
     """
@@ -83,6 +137,7 @@ class RemoteWebsocketChunkPolicy:
     act_dim: int = 8
     resize: int = 224
     require_frozen_latent: bool = False
+    require_safe_latent: bool = False
     execution_chunk_size: int | None = None
 
     def __post_init__(self) -> None:
@@ -102,8 +157,12 @@ class RemoteWebsocketChunkPolicy:
         self._image_tools = image_tools
         self._client = websocket_client_policy.WebsocketClientPolicy(host=self.server, port=None)
         self._server_metadata = dict(self._client.get_server_metadata())
+        if self.require_frozen_latent and self.require_safe_latent:
+            raise ValueError("Only one OpenPI latent protocol may be required")
         if self.require_frozen_latent:
             _validate_frozen_latent_metadata(self._server_metadata)
+        if self.require_safe_latent:
+            _validate_safe_latent_metadata(self._server_metadata)
         self._queue: deque[np.ndarray] = deque()
         self._last_action: np.ndarray | None = None
         self._last_frozen_latent: np.ndarray | None = None
@@ -151,14 +210,17 @@ class RemoteWebsocketChunkPolicy:
                 )
             request[INFERENCE_SEED_KEY] = int(inference_seed)
         out: dict[str, Any] = self._client.infer(request)
-        latent_value = out.get(FROZEN_LATENT_KEY)
+        latent_key = SAFE_LATENT_KEY if self.require_safe_latent else FROZEN_LATENT_KEY
+        latent_value = out.get(latent_key)
         latent: np.ndarray | None
         if latent_value is None:
-            if self.require_frozen_latent:
+            if self.require_frozen_latent or self.require_safe_latent:
                 raise RuntimeError(
-                    f"OpenPI response is missing required {FROZEN_LATENT_KEY!r}"
+                    f"OpenPI response is missing required {latent_key!r}"
                 )
             latent = None
+        elif self.require_safe_latent:
+            latent = _validate_safe_latent(latent_value)
         else:
             latent = _validate_frozen_latent(latent_value)
         chunk = np.asarray(out["actions"])
@@ -188,7 +250,7 @@ class RemoteWebsocketChunkPolicy:
         return self._last_action
 
     def planned_latent(self) -> np.ndarray | None:
-        """Return the frozen action latent paired with the current action chunk."""
+        """Return the requested Pi0 latent paired with the current action chunk."""
 
         if self._last_frozen_latent is None:
             return None

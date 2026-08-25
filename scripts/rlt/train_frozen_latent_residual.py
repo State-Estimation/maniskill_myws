@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -53,20 +54,32 @@ def _validate_environment_reward(
     grasp_event = _done(info.get("grasp_reward_event", False))
     if reward_mode not in {"dense", "sparse"}:
         raise ValueError(f"Unsupported reward mode {reward_mode!r}")
-    if grasp_process_reward is None or task_success_reward is None:
-        raise ValueError("Milestone reward scales were not bound from the environment")
-    if "grasp_reward_event" not in info:
-        raise ValueError("Milestone reward info is missing grasp_reward_event")
-    expected = (
-        grasp_process_reward * float(grasp_event)
-        + task_success_reward * float(success)
-    )
+    if task_success_reward is None:
+        raise ValueError("Task success reward was not bound from the environment")
+    if grasp_process_reward is None:
+        expected = task_success_reward * float(success)
+        grasp_event = False
+    else:
+        if "grasp_reward_event" not in info:
+            raise ValueError("Milestone reward info is missing grasp_reward_event")
+        expected = (
+            grasp_process_reward * float(grasp_event)
+            + task_success_reward * float(success)
+        )
     if not np.isclose(reward_value, expected, rtol=0.0, atol=1e-6):
         raise ValueError(
             f"Environment {reward_mode} reward {reward_value} does not match "
             f"declared components {expected}"
         )
     return success, grasp_event
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _action_bounds(action_space, action_dim: int) -> tuple[np.ndarray, np.ndarray]:
@@ -354,6 +367,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-q-advantage", type=float, default=0.10)
     parser.add_argument("--max-online-intervention-chunks-per-episode", type=int, default=1)
     parser.add_argument("--intervention-cooldown-chunks", type=int, default=0)
+    parser.add_argument("--value-checkpoint", default=None)
+    parser.add_argument("--value-potential-weight", type=float, default=1.0)
+    parser.add_argument("--value-warmup-explore-probability", type=float, default=0.20)
+    parser.add_argument("--intervention-keep-q-advantage", type=float, default=0.02)
+    parser.add_argument(
+        "--max-online-intervention-env-steps", type=int, default=500
+    )
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--target-tau", type=float, default=0.005)
@@ -408,6 +428,12 @@ def _parse_args() -> argparse.Namespace:
         parser.error("resize and save interval must be positive")
     if not np.isfinite(args.min_q_advantage):
         parser.error("--min-q-advantage must be finite")
+    if not np.isfinite(args.intervention_keep_q_advantage):
+        parser.error("--intervention-keep-q-advantage must be finite")
+    if args.value_potential_weight < 0.0:
+        parser.error("--value-potential-weight must be non-negative")
+    if args.max_online_intervention_env_steps < 0:
+        parser.error("--max-online-intervention-env-steps must be non-negative")
     if not 0.0 < args.actor_residual_limit <= 1.0:
         parser.error("--actor-residual-limit must lie in (0,1]")
     for name in (
@@ -422,6 +448,7 @@ def _parse_args() -> argparse.Namespace:
         "conservative_random_std",
         "success_bc_min_return",
         "actor_success_bc_min_residual_rms",
+        "value_warmup_explore_probability",
     ):
         if not 0.0 <= getattr(args, name) <= 1.0:
             parser.error(f"--{name.replace('_', '-')} must lie in [0,1]")
@@ -435,6 +462,8 @@ def _parse_args() -> argparse.Namespace:
         parser.error("loss weights must be non-negative")
     if args.wandb_enabled and not args.wandb_project.strip():
         parser.error("--wandb-project must be non-empty when W&B is enabled")
+    if args.value_checkpoint and args.chunk_len != 10:
+        parser.error("Value-guided RL requires --chunk-len 10")
 
     if not args.resume_checkpoint and any(
         (args.resume_replay, args.resume_history, args.resume_trainer_state)
@@ -468,10 +497,15 @@ def main() -> None:
     from maniskill_myws.rlt.frozen_latent_rl import (
         FROZEN_LATENT_DIM,
         FROZEN_LATENT_PROTOCOL,
+        SAFE_ENDPOINT_LATENT_ENCODER,
         FrozenLatentReplayBuffer,
         FrozenLatentResidualAgent,
         FrozenLatentRLConfig,
         make_runtime_identity,
+    )
+    from maniskill_myws.openpi_bridge.remote_policy import (
+        SAFE_LATENT_DIM,
+        SAFE_LATENT_PROTOCOL,
     )
     from maniskill_myws.rlt.policies import (
         inference_seed_for_step,
@@ -480,6 +514,13 @@ def main() -> None:
     )
     from maniskill_myws.rlt.reset import reset_env_fresh_scene
     from maniskill_myws.rlt.state import StateAdapter
+    from maniskill_myws.rlt.value_model import (
+        VALUE_FEATURE_SCHEMA,
+        DistributionalBaseValueModel,
+        infer_value_estimate,
+        value_potential_shaping,
+        value_images_from_observation,
+    )
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -505,16 +546,26 @@ def main() -> None:
         expected_render_backend=args.render_backend,
     )
     base_env = env.unwrapped
-    reward_schema = dict(getattr(base_env, "grasp_reward_schema"))
-    grasp_process_reward = float(getattr(base_env, "grasp_process_reward"))
-    task_success_reward = float(getattr(base_env, "task_success_reward"))
-    if not bool(reward_schema.get("grasp_reward_once_per_episode", False)):
-        raise ValueError("MC labels require a once-per-episode grasp reward")
+    raw_reward_schema = getattr(base_env, "grasp_reward_schema", None)
+    if raw_reward_schema is None:
+        if args.reward_mode != "sparse":
+            raise ValueError(
+                "Environments without a declared milestone schema require sparse reward"
+            )
+        reward_schema = {"schema": "terminal_success_sparse_reward_v1"}
+        grasp_process_reward = None
+        task_success_reward = 1.0
+    else:
+        reward_schema = dict(raw_reward_schema)
+        grasp_process_reward = float(getattr(base_env, "grasp_process_reward"))
+        task_success_reward = float(getattr(base_env, "task_success_reward"))
+        if not bool(reward_schema.get("grasp_reward_once_per_episode", False)):
+            raise ValueError("MC labels require a once-per-episode grasp reward")
     minimum_discounted_success = task_success_reward * float(args.gamma) ** (
         args.max_episode_steps / args.chunk_len
     )
     if not (
-        grasp_process_reward
+        float(grasp_process_reward or 0.0)
         < args.success_bc_min_return
         < minimum_discounted_success
     ):
@@ -526,6 +577,7 @@ def main() -> None:
     action_dim = int(np.prod(env.action_space.shape))
     low, high = _action_bounds(env.action_space, action_dim)
     prompt = args.prompt or getattr(base_env, "DEFAULT_TASK_PROMPT", "")
+    value_enabled = args.value_checkpoint is not None
     policy = make_base_chunk_policy(
         "remote_openpi",
         action_space=env.action_space,
@@ -536,18 +588,92 @@ def main() -> None:
         wrist_image_key=args.wrist_image_key,
         state_keys=args.state_keys,
         resize=args.resize,
-        require_frozen_latent=True,
+        require_frozen_latent=not value_enabled,
+        require_safe_latent=value_enabled,
     )
     state_adapter = StateAdapter(args.state_keys)
     obs, _ = reset_env_fresh_scene(
         env, seed=args.seed, operation="frozen latent shape probe"
     )
-    state = np.asarray(state_adapter(obs), dtype=np.float32)
+    raw_state = np.asarray(state_adapter(obs), dtype=np.float32)
     metadata = policy.server_metadata or {}
-    if metadata.get("frozen_latent_protocol") != FROZEN_LATENT_PROTOCOL:
-        raise RuntimeError("OpenPI server latent protocol changed after validation")
-    if metadata.get("frozen_latent_shape") != [FROZEN_LATENT_DIM]:
-        raise RuntimeError("OpenPI server frozen latent has an invalid shape")
+    latent_protocol = SAFE_LATENT_PROTOCOL if value_enabled else FROZEN_LATENT_PROTOCOL
+    latent_dim = SAFE_LATENT_DIM if value_enabled else FROZEN_LATENT_DIM
+    latent_encoder = (
+        SAFE_ENDPOINT_LATENT_ENCODER if value_enabled else "mean_projection"
+    )
+    if value_enabled:
+        if metadata.get("safe_latent_protocol") != SAFE_LATENT_PROTOCOL:
+            raise RuntimeError("OpenPI server SAFE latent protocol changed after validation")
+        if metadata.get("safe_latent_shape") != [SAFE_LATENT_DIM]:
+            raise RuntimeError("OpenPI server SAFE latent has an invalid shape")
+    else:
+        if metadata.get("frozen_latent_protocol") != FROZEN_LATENT_PROTOCOL:
+            raise RuntimeError("OpenPI server latent protocol changed after validation")
+        if metadata.get("frozen_latent_shape") != [FROZEN_LATENT_DIM]:
+            raise RuntimeError("OpenPI server frozen latent has an invalid shape")
+
+    policy_identity = openpi_policy_identity_sha256(metadata)
+    value_model = None
+    value_metadata: dict[str, Any] = {}
+    value_checkpoint_sha256 = None
+    value_state_dim = 0
+    if value_enabled:
+        value_checkpoint = Path(args.value_checkpoint)
+        if not value_checkpoint.is_file():
+            raise FileNotFoundError(f"Value checkpoint not found: {value_checkpoint}")
+        value_model, value_metadata = DistributionalBaseValueModel.load(
+            value_checkpoint, device=device
+        )
+        value_model.requires_grad_(False)
+        value_checkpoint_sha256 = _sha256_file(value_checkpoint)
+        value_config = value_model.config
+        expected_value_config = {
+            "state_dim": int(raw_state.size),
+            "action_dim": action_dim,
+            "chunk_len": args.chunk_len,
+            "max_episode_steps": args.max_episode_steps,
+            "num_views": 2,
+            "latent_dim": SAFE_LATENT_DIM,
+        }
+        mismatched_value_config = {
+            key: (expected, getattr(value_config, key))
+            for key, expected in expected_value_config.items()
+            if getattr(value_config, key) != expected
+        }
+        if mismatched_value_config:
+            raise ValueError(
+                f"Value checkpoint configuration mismatch: {mismatched_value_config}"
+            )
+        dataset_metadata = value_metadata.get("dataset_metadata")
+        if not isinstance(dataset_metadata, dict):
+            raise ValueError("Value checkpoint has no rollout dataset identity")
+        expected_dataset_identity = {
+            "env_id": args.env_id,
+            "obs_mode": args.obs_mode,
+            "reward_mode": args.reward_mode,
+            "control_mode": args.control_mode,
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "image_keys": [args.image_key, args.wrist_image_key],
+            "state_keys": list(args.state_keys),
+            "chunk_len": args.chunk_len,
+            "max_episode_steps": args.max_episode_steps,
+            "action_dim": action_dim,
+            "safe_latent_protocol": SAFE_LATENT_PROTOCOL,
+            "safe_latent_dim": SAFE_LATENT_DIM,
+            "openpi_policy_identity_sha256": policy_identity,
+            "base_policy_only": True,
+        }
+        identity_mismatches = {
+            key: (expected, dataset_metadata.get(key))
+            for key, expected in expected_dataset_identity.items()
+            if dataset_metadata.get(key) != expected
+        }
+        if identity_mismatches:
+            raise ValueError(
+                f"Value rollout identity mismatch: {identity_mismatches}"
+            )
+        value_state_dim = value_config.critic_feature_dim
 
     runtime_identity = make_runtime_identity(
         env_id=args.env_id,
@@ -564,12 +690,21 @@ def main() -> None:
         resize=args.resize,
         chunk_len=args.chunk_len,
         max_episode_steps=args.max_episode_steps,
-        openpi_policy_identity_sha256=openpi_policy_identity_sha256(metadata),
+        openpi_policy_identity_sha256=policy_identity,
+        latent_protocol=latent_protocol,
+        latent_dim=latent_dim,
     )
     runtime_identity["environment_reward_schema"] = reward_schema
+    if value_enabled:
+        runtime_identity["value_model"] = {
+            "checkpoint_sha256": value_checkpoint_sha256,
+            "feature_schema": VALUE_FEATURE_SCHEMA,
+            "feature_dim": value_state_dim,
+            "potential_weight": float(args.value_potential_weight),
+        }
     config = FrozenLatentRLConfig(
-        state_dim=int(state.size),
-        latent_dim=FROZEN_LATENT_DIM,
+        state_dim=int(raw_state.size) + value_state_dim,
+        latent_dim=latent_dim,
         action_dim=action_dim,
         chunk_len=args.chunk_len,
         max_episode_steps=args.max_episode_steps,
@@ -596,6 +731,8 @@ def main() -> None:
         actor_success_bc_min_q_advantage=args.actor_success_bc_min_q_advantage,
         action_low=tuple(float(value) for value in low),
         action_high=tuple(float(value) for value in high),
+        latent_protocol=latent_protocol,
+        latent_encoder=latent_encoder,
     )
     replay = FrozenLatentReplayBuffer(
         args.buffer_capacity,
@@ -605,6 +742,35 @@ def main() -> None:
         action_dim=config.action_dim,
         seed=args.seed,
     )
+
+    def encode_critic_state(
+        observation: dict,
+        raw: np.ndarray,
+        latent: np.ndarray,
+        reference: np.ndarray,
+        step_id: int,
+    ):
+        raw = _validate("raw state", raw, (int(raw_state.size),))
+        if value_model is None:
+            return raw, None
+        images = value_images_from_observation(
+            observation,
+            image_keys=(args.image_key, args.wrist_image_key),
+            height=value_model.config.image_height,
+            width=value_model.config.image_width,
+        )
+        estimate = infer_value_estimate(
+            value_model,
+            images=images,
+            state=raw,
+            latent=latent,
+            ref_chunk=reference,
+            step_id=step_id,
+        )
+        state = np.concatenate([raw, estimate.critic_features]).astype(
+            np.float32, copy=False
+        )
+        return _validate("value-augmented state", state, (config.state_dim,)), estimate
 
     rng = np.random.default_rng(args.seed + 17_041)
     resume_checkpoint_path = Path(args.resume_checkpoint) if args.resume_checkpoint else None
@@ -677,16 +843,34 @@ def main() -> None:
     replay_path = output_dir / "online_replay.npz"
     trainer_state_path = output_dir / "trainer_state.json"
     run_config = {
-        "schema": "mean_frozen_latent_advantage_bc_run_v1",
+        "schema": (
+            "safe_full_latent_value_guided_advantage_bc_run_v1"
+            if value_enabled
+            else "mean_frozen_latent_advantage_bc_run_v1"
+        ),
         "args": vars(args),
         "agent_config": asdict(config),
         "backend": backend,
         "runtime_identity": runtime_identity,
-        "frozen_latent_protocol": FROZEN_LATENT_PROTOCOL,
-        "representation": "mean_pooled_action_suffix",
-        "action_parameterization": "six_knot_continuous_fifty_step_residual",
+        "frozen_latent_protocol": latent_protocol,
+        "representation": (
+            "safe_four_endpoint_tokens_plus_frozen_distributional_value_features"
+            if value_enabled
+            else "mean_pooled_action_suffix"
+        ),
+        "action_parameterization": (
+            f"{config.exploration_knots}_knot_continuous_{args.chunk_len}_step_residual"
+        ),
         "replay_stores_exact_executed_actions": True,
-        "reward_source": "environment_grasp_event_plus_task_success",
+        "reward_source": (
+            "environment_terminal_success_plus_frozen_value_potential_difference"
+            if value_enabled
+            else (
+                "environment_grasp_event_plus_task_success"
+                if grasp_process_reward is not None
+                else "environment_terminal_success"
+            )
+        ),
         "environment_reward_schema": reward_schema,
         "discount_semantics": "gamma_per_full_chunk_with_duration_fraction_v1",
         "training_budget_semantics": "finish_started_episode",
@@ -706,10 +890,37 @@ def main() -> None:
         },
         "intervention_scheduling": {
             "scope": "rollout_local_not_critic_input",
-            "max_chunks_per_episode": args.max_online_intervention_chunks_per_episode,
-            "cooldown_chunks": args.intervention_cooldown_chunks,
+            "mode": "q_hysteresis_dynamic" if value_enabled else "fixed_chunk_budget",
+            "max_chunks_per_episode": (
+                None
+                if value_enabled
+                else args.max_online_intervention_chunks_per_episode
+            ),
+            "max_intervention_env_steps": (
+                args.max_online_intervention_env_steps if value_enabled else None
+            ),
+            "cooldown_chunks": (
+                0 if value_enabled else args.intervention_cooldown_chunks
+            ),
             "min_q_advantage": args.min_q_advantage,
+            "keep_q_advantage": (
+                args.intervention_keep_q_advantage if value_enabled else None
+            ),
         },
+        "value_guidance": (
+            {
+                "checkpoint": str(Path(args.value_checkpoint).resolve()),
+                "checkpoint_sha256": value_checkpoint_sha256,
+                "feature_schema": VALUE_FEATURE_SCHEMA,
+                "critic_feature_dim": value_state_dim,
+                "potential_weight": args.value_potential_weight,
+                "frozen_during_rl": True,
+                "used_as_failure_trigger": False,
+                "dataset_metadata": value_metadata.get("dataset_metadata"),
+            }
+            if value_enabled
+            else None
+        ),
         "resume": (
             {
                 "checkpoint": str(resume_checkpoint_path.resolve()),
@@ -827,13 +1038,15 @@ def main() -> None:
                 operation=f"frozen latent train episode {episode}",
             )
             policy.reset()
-            state = np.asarray(state_adapter(obs), dtype=np.float32)
+            raw_state_episode = np.asarray(state_adapter(obs), dtype=np.float32)
             episode_step = 0
             episode_return = 0.0
             episode_success = False
             episode_grasp_events = 0
             warmup_explores = 0
             online_interventions = 0
+            online_intervention_env_steps = 0
+            recovery_active = False
             last_intervention_boundary: int | None = None
             cooldown_rejections = 0
             base_control_episode = bool(
@@ -850,7 +1063,7 @@ def main() -> None:
                     boundary_count, size=explore_count, replace=False
                 )
             )
-            pending: tuple[np.ndarray, np.ndarray] | None = None
+            pending: tuple[np.ndarray, np.ndarray, np.ndarray, Any] | None = None
             episode_transitions: list[dict[str, Any]] = []
 
             while episode_step < args.max_episode_steps:
@@ -865,17 +1078,23 @@ def main() -> None:
                             episode_seed, episode_step
                         ),
                     )
+                    state, value_estimate = encode_critic_state(
+                        obs, raw_state_episode, latent, ref, episode_step
+                    )
                 else:
-                    ref, latent = pending
+                    ref, latent, state, value_estimate = pending
                     pending = None
                 ref = _validate("reference chunk", ref, (args.chunk_len, action_dim))
                 latent = _validate("frozen Pi0 latent", latent, replay.latent_shape)
                 boundary_index = episode_step // args.chunk_len
                 has_budget = (
-                    online_interventions
+                    online_intervention_env_steps
+                    < args.max_online_intervention_env_steps
+                    if value_enabled
+                    else online_interventions
                     < args.max_online_intervention_chunks_per_episode
                 )
-                cooldown_elapsed = (
+                cooldown_elapsed = value_enabled or (
                     last_intervention_boundary is None
                     or boundary_index - last_intervention_boundary
                     > args.intervention_cooldown_chunks
@@ -912,7 +1131,12 @@ def main() -> None:
                         actor_residual,
                         step_id=episode_step,
                     )
-                    accepted = bool(eligible and q_advantage >= args.min_q_advantage)
+                    gate_threshold = (
+                        args.intervention_keep_q_advantage
+                        if value_enabled and recovery_active
+                        else args.min_q_advantage
+                    )
+                    accepted = bool(eligible and q_advantage >= gate_threshold)
                     explore = _should_explore_online(
                         eligible=eligible,
                         accepted=accepted,
@@ -958,7 +1182,16 @@ def main() -> None:
                         requested_residual = np.zeros_like(ref)
                         phase = "online_base_fallback"
                         intervened = False
-                elif eligible and boundary_index in warmup_explore_boundaries:
+                elif eligible and (
+                    (
+                        value_enabled
+                        and rng.random() < args.value_warmup_explore_probability
+                    )
+                    or (
+                        not value_enabled
+                        and boundary_index in warmup_explore_boundaries
+                    )
+                ):
                     action_chunk, requested_residual = agent.select_chunk(
                         state,
                         latent,
@@ -979,6 +1212,8 @@ def main() -> None:
                 if intervened:
                     online_interventions += 1
                     last_intervention_boundary = boundary_index
+                if value_enabled:
+                    recovery_active = intervened
                 actions: list[np.ndarray] = []
                 rewards: list[float] = []
                 done = False
@@ -1017,6 +1252,8 @@ def main() -> None:
                         break
 
                 duration = len(actions)
+                if intervened:
+                    online_intervention_env_steps += duration
                 executed = ref.copy()
                 executed[:duration] = np.stack(actions)
                 executed_residual = np.clip(
@@ -1035,10 +1272,21 @@ def main() -> None:
                 )
                 reward_array = np.zeros((args.chunk_len,), dtype=np.float32)
                 reward_array[:duration] = rewards
-                next_state = np.asarray(state_adapter(next_obs), dtype=np.float32)
+                next_raw_state = np.asarray(state_adapter(next_obs), dtype=np.float32)
                 if done:
                     next_ref = ref.copy()
                     next_latent = np.zeros(replay.latent_shape, dtype=np.float32)
+                    next_state = (
+                        np.concatenate(
+                            [
+                                next_raw_state,
+                                np.zeros(value_state_dim, dtype=np.float32),
+                            ]
+                        )
+                        if value_enabled
+                        else next_raw_state
+                    )
+                    next_value_estimate = None
                 else:
                     next_ref, next_latent = _plan_frozen_policy(
                         policy,
@@ -1056,7 +1304,35 @@ def main() -> None:
                     next_latent = _validate(
                         "next frozen Pi0 latent", next_latent, replay.latent_shape
                     )
-                    pending = (next_ref, next_latent)
+                    next_state, next_value_estimate = encode_critic_state(
+                        next_obs,
+                        next_raw_state,
+                        next_latent,
+                        next_ref,
+                        episode_step,
+                    )
+                    pending = (
+                        next_ref,
+                        next_latent,
+                        next_state,
+                        next_value_estimate,
+                    )
+                potential_shaping = 0.0
+                if value_estimate is not None:
+                    next_potential = (
+                        0.0
+                        if next_value_estimate is None
+                        else next_value_estimate.potential
+                    )
+                    potential_shaping = value_potential_shaping(
+                        current_potential=value_estimate.potential,
+                        next_potential=next_potential,
+                        gamma=args.gamma,
+                        duration=duration,
+                        chunk_len=args.chunk_len,
+                        weight=args.value_potential_weight,
+                    )
+                    reward_array[duration - 1] += potential_shaping
                 episode_transitions.append(
                     {
                         "state": state.copy(),
@@ -1078,10 +1354,26 @@ def main() -> None:
                         "requested_residual_rms": float(
                             np.sqrt(np.mean(np.square(requested_residual)))
                         ),
+                        "value_potential": (
+                            value_estimate.potential
+                            if value_estimate is not None
+                            else None
+                        ),
+                        "value_failure_probability": (
+                            value_estimate.failure_probability
+                            if value_estimate is not None
+                            else None
+                        ),
+                        "value_entropy": (
+                            value_estimate.entropy
+                            if value_estimate is not None
+                            else None
+                        ),
+                        "value_potential_shaping": potential_shaping,
                     }
                 )
                 obs = next_obs
-                state = next_state
+                raw_state_episode = next_raw_state
                 if done:
                     break
 
@@ -1154,6 +1446,21 @@ def main() -> None:
                 for item in episode_transitions
                 if np.isfinite(item["executed_q_advantage"])
             ]
+            value_potentials = [
+                float(item["value_potential"])
+                for item in episode_transitions
+                if item["value_potential"] is not None
+            ]
+            value_failure_probabilities = [
+                float(item["value_failure_probability"])
+                for item in episode_transitions
+                if item["value_failure_probability"] is not None
+            ]
+            value_entropies = [
+                float(item["value_entropy"])
+                for item in episode_transitions
+                if item["value_entropy"] is not None
+            ]
             pool_counts = replay.stratified_pool_counts(
                 success_threshold=config.success_bc_min_return
             )
@@ -1181,6 +1488,7 @@ def main() -> None:
                 "warmup_explore_chunks": warmup_explores,
                 "base_control_episode": base_control_episode,
                 "intervention_chunks": int(sum(interventions)),
+                "intervention_env_steps": online_intervention_env_steps,
                 "intervention_steps": intervention_steps,
                 "intervention_cooldown_rejections": cooldown_rejections,
                 "q_gate_intervention_chunks": sum(
@@ -1200,6 +1508,23 @@ def main() -> None:
                     float(np.mean(executed_advantages))
                     if executed_advantages
                     else None
+                ),
+                "mean_value_potential": (
+                    float(np.mean(value_potentials)) if value_potentials else None
+                ),
+                "mean_value_failure_probability": (
+                    float(np.mean(value_failure_probabilities))
+                    if value_failure_probabilities
+                    else None
+                ),
+                "mean_value_entropy": (
+                    float(np.mean(value_entropies)) if value_entropies else None
+                ),
+                "value_potential_shaping_return": float(
+                    sum(
+                        item["value_potential_shaping"]
+                        for item in episode_transitions
+                    )
                 ),
                 "residual_rms": float(
                     np.mean(

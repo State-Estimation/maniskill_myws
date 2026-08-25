@@ -6,8 +6,14 @@ import numpy as np
 import pytest
 import torch
 
+from maniskill_myws.openpi_bridge.remote_policy import (
+    SAFE_LATENT_DIM,
+    SAFE_LATENT_PROTOCOL,
+)
 from maniskill_myws.rlt.frozen_latent_rl import (
     FROZEN_LATENT_CHECKPOINT_SCHEMA,
+    SAFE_ENDPOINT_LATENT_ENCODER,
+    SAFE_VALUE_GUIDED_CHECKPOINT_SCHEMA,
     FrozenLatentBatch,
     FrozenLatentReplayBuffer,
     FrozenLatentResidualAgent,
@@ -299,6 +305,29 @@ def test_checkpoint_round_trip_binds_runtime_identity(tmp_path) -> None:
     with pytest.raises(ValueError, match="runtime identity mismatch"):
         restored.assert_runtime_identity({**identity, "resize": 96})
     assert len(runtime_identity_sha256(identity)) == 64
+
+
+def test_safe_full_latent_agent_has_distinct_checkpoint_schema(tmp_path) -> None:
+    config = _config(
+        latent_dim=SAFE_LATENT_DIM,
+        latent_protocol=SAFE_LATENT_PROTOCOL,
+        latent_encoder=SAFE_ENDPOINT_LATENT_ENCODER,
+    )
+    agent = FrozenLatentResidualAgent(config)
+    residual = agent.select_residual(
+        np.zeros(config.state_dim, dtype=np.float32),
+        np.zeros(config.latent_dim, dtype=np.float32),
+        np.zeros((config.chunk_len, config.action_dim), dtype=np.float32),
+        step_id=0,
+        deterministic=True,
+    )
+    np.testing.assert_array_equal(residual, np.zeros_like(residual))
+    path = tmp_path / "safe_agent.pt"
+    agent.save(path)
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    assert payload["schema"] == SAFE_VALUE_GUIDED_CHECKPOINT_SCHEMA
+    restored = FrozenLatentResidualAgent.load(path)
+    assert restored.config == config
 
 
 def test_checkpoint_rejects_unknown_config_fields(tmp_path) -> None:

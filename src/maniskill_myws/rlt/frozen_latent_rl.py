@@ -1,4 +1,4 @@
-"""Mean frozen-Pi0-latent Advantage-BC residual TD3."""
+"""Frozen-Pi0-latent Advantage-BC residual TD3 (mean or SAFE endpoint mode)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,12 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+from maniskill_myws.openpi_bridge.remote_policy import (
+    SAFE_LATENT_DIM,
+    SAFE_LATENT_PROTOCOL,
+)
+from maniskill_myws.rlt.value_model import SafeEndpointTokenEncoder
+
 
 FROZEN_LATENT_PROTOCOL = "maniskill_frozen_pi0_action_suffix_mean_v1"
 FROZEN_LATENT_DIM = 1024
@@ -24,6 +30,11 @@ FROZEN_LATENT_CHECKPOINT_SCHEMA = (
 LEGACY_V4_FROZEN_LATENT_CHECKPOINT_SCHEMA = (
     "lightweight_rlt_frozen_pi0_continuous_residual_v4"
 )
+SAFE_VALUE_GUIDED_CHECKPOINT_SCHEMA = (
+    "safe_full_latent_value_guided_advantage_bc_v1"
+)
+MEAN_LATENT_ENCODER = "mean_projection"
+SAFE_ENDPOINT_LATENT_ENCODER = "safe_endpoint_attention"
 
 
 def make_runtime_identity(
@@ -43,6 +54,8 @@ def make_runtime_identity(
     chunk_len: int,
     max_episode_steps: int,
     openpi_policy_identity_sha256: str,
+    latent_protocol: str = FROZEN_LATENT_PROTOCOL,
+    latent_dim: int = FROZEN_LATENT_DIM,
 ) -> dict[str, Any]:
     """Build the immutable deployment identity used by v2 runtime checks."""
 
@@ -65,8 +78,8 @@ def make_runtime_identity(
         "chunk_len": int(chunk_len),
         "max_episode_steps": int(max_episode_steps),
         "openpi_policy_identity_sha256": str(openpi_policy_identity_sha256),
-        "frozen_latent_protocol": FROZEN_LATENT_PROTOCOL,
-        "frozen_latent_dim": FROZEN_LATENT_DIM,
+        "frozen_latent_protocol": str(latent_protocol),
+        "frozen_latent_dim": int(latent_dim),
     }
     return identity
 
@@ -130,6 +143,7 @@ class FrozenLatentRLConfig:
     action_low: tuple[float, ...] | None = None
     action_high: tuple[float, ...] | None = None
     latent_protocol: str = FROZEN_LATENT_PROTOCOL
+    latent_encoder: str = MEAN_LATENT_ENCODER
 
     def __post_init__(self) -> None:
         if self.action_dim != 8:
@@ -198,8 +212,16 @@ class FrozenLatentRLConfig:
         high = np.asarray(self.action_high, dtype=np.float32)
         if not np.all(np.isfinite(low)) or not np.all(np.isfinite(high)) or np.any(low >= high):
             raise ValueError("Action bounds must be finite with low < high")
-        if self.latent_protocol != FROZEN_LATENT_PROTOCOL:
-            raise ValueError("Unsupported frozen latent protocol")
+        valid_latent = (
+            self.latent_protocol == FROZEN_LATENT_PROTOCOL
+            and self.latent_encoder == MEAN_LATENT_ENCODER
+        ) or (
+            self.latent_protocol == SAFE_LATENT_PROTOCOL
+            and self.latent_dim == SAFE_LATENT_DIM
+            and self.latent_encoder == SAFE_ENDPOINT_LATENT_ENCODER
+        )
+        if not valid_latent:
+            raise ValueError("Unsupported frozen latent protocol/encoder combination")
 
 @dataclass(slots=True)
 class FrozenLatentBatch:
@@ -640,8 +662,14 @@ class FrozenLatentContextEncoder(nn.Module):
         super().__init__()
         h = config.hidden_dim
         self.config = config
-        self.latent = nn.Sequential(
-            nn.LayerNorm(config.latent_dim), nn.Linear(config.latent_dim, h), nn.GELU()
+        self.latent = (
+            SafeEndpointTokenEncoder(h)
+            if config.latent_encoder == SAFE_ENDPOINT_LATENT_ENCODER
+            else nn.Sequential(
+                nn.LayerNorm(config.latent_dim),
+                nn.Linear(config.latent_dim, h),
+                nn.GELU(),
+            )
         )
         self.state = nn.Sequential(
             nn.Linear(config.state_dim + 1, h), nn.LayerNorm(h), nn.GELU()
@@ -663,7 +691,7 @@ class FrozenLatentContextEncoder(nn.Module):
         )
         state_time = torch.cat([state, remaining.clamp(0.0, 1.0)], dim=-1)
         if latent.ndim != 2 or latent.shape[-1] != self.config.latent_dim:
-            raise ValueError("Mean latent must have shape [B, latent_dim]")
+            raise ValueError("Frozen latent must have shape [B, latent_dim]")
         latent_feature = self.latent(latent)
         return self.fusion(
             torch.cat(
@@ -1259,8 +1287,13 @@ class FrozenLatentResidualAgent:
     def save(self, path: str | Path, *, snapshot_id: str | None = None) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        schema = (
+            SAFE_VALUE_GUIDED_CHECKPOINT_SCHEMA
+            if self.config.latent_protocol == SAFE_LATENT_PROTOCOL
+            else FROZEN_LATENT_CHECKPOINT_SCHEMA
+        )
         payload = {
-            "schema": FROZEN_LATENT_CHECKPOINT_SCHEMA,
+            "schema": schema,
             "checkpoint_version": self.checkpoint_version,
             "config": asdict(self.config),
             "runtime_identity": copy.deepcopy(self.runtime_identity),
@@ -1296,6 +1329,7 @@ class FrozenLatentResidualAgent:
         accepted = {
             (FROZEN_LATENT_CHECKPOINT_SCHEMA, 4),
             (LEGACY_V4_FROZEN_LATENT_CHECKPOINT_SCHEMA, 4),
+            (SAFE_VALUE_GUIDED_CHECKPOINT_SCHEMA, 4),
         }
         if (schema, version) not in accepted:
             raise ValueError("Checkpoint is not a maintained frozen-Pi0 residual agent")

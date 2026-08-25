@@ -1,0 +1,62 @@
+schema: task_safe_value_guided_advantage_bc_v1
+
+task:
+  env_id: TakeSafetyHook-v1
+  max_episode_steps: 500
+  reward_schema: terminal_success_sparse_reward_v1
+
+frozen_base:
+  config: pi0_maniskill
+  checkpoint: checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_TakeSafetyHook1_pd_joint_pos_success_truncated_32batch/29999
+  server_port: 8012
+  safe_pre_velocity_latent: true
+
+representation:
+  latent_protocol: safe_pi0_pre_velocity_diff2_horizon2_concat_v1
+  latent_dim: 4096
+  latent_encoder: safe_endpoint_attention
+  independent_vision_encoder: true
+  value_feature_schema: safe_visual_recap_value_features_v1
+  chunk_len: 10
+
+value_model:
+  rollout_dataset: outputs/rlt/value_rollouts/TakeSafetyHook-v1_safe_base.h5
+  checkpoint: outputs/rlt/value/TakeSafetyHook-v1_safe_visual_recap_value_best.pt
+  target: categorical_failure_plus_remaining_chunks
+  feature_dim: 256
+  critic_features: feature_distribution_expected_failure_entropy
+  potential_weight: 1.0
+  frozen_during_online_rl: true
+
+gate:
+  selector: conservative_twin_q
+  enter_min_q_advantage: 0.08
+  keep_min_q_advantage: 0.02
+  mode: dynamic_q_hysteresis
+  max_intervention_env_steps: 500
+  cooldown_chunks: 0
+
+training:
+  seed: 41000
+  total_env_steps: 200000
+  buffer_capacity: 50000
+  batch_size: 128
+  critic_warmup_updates: 2000
+  updates_per_chunk: 5
+  chunk_len: 10
+  max_warmup_explore_chunks_per_episode: 0
+  value_warmup_explore_probability: 0.20
+  online_explore_probability: 0.15
+  independent_online_exploration: true
+  exploration_std_start: 0.35
+  exploration_std_end: 0.08
+  replay_nonzero_fraction: 0.50
+  replay_nonzero_success_fraction: 0.50
+  actor_success_bc_weight: 2.0
+  conservative_q_weight: 0.50
+
+evaluation:
+  paired: true
+  start_seed: 51000
+  num_seeds: 100
+  value_dynamic_gate: true

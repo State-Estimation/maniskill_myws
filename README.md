@@ -4,14 +4,18 @@
 
 ## 当前 RL 主线：Mean Frozen-Latent Advantage-BC
 
-当前 `frozen-latent-advantage-bc` 分支只维护一套 RL post-training 方案：
+当前 `frozen-latent-advantage-bc` 分支保留已验证的 mean-latent 主线，并新增一个
+独立的 SAFE full-latent + Value 实验协议。mean-latent 主线的结构是：
 
 1. 冻结 π0 的全部参数。π0 每个 chunk 输出 50 步 reference action，并返回最后一次去噪中 action-suffix hidden token 的 1024 维均值。
 2. 轻量 actor 读取机器人状态、mean frozen latent、reference action 和当前时间位置，预测 6 个 knot；插值后得到完整的 50 步 residual action chunk。
 3. Conservative twin-Q 比较 residual 与 zero-residual 的价值。只有 advantage 达到阈值且满足 intervention budget/cooldown 时才执行 residual，否则保持原始 π0 action。
 4. 成功执行且 Q advantage 足够高的 residual 会进入 Advantage-BC 自模仿项；replay 按 zero residual、成功 nonzero residual、失败 nonzero residual 进行平衡采样。
 
-该方案没有独立 vision encoder、temporal latent、失败预测器、candidate ensemble、PCA 或 task-stage router。视觉信息只来自冻结 π0 的 action-suffix latent；RL 侧从零初始化，不读取任何旧 RL checkpoint 或 replay。这里的“从零训练”不包括 π0，π0 仍使用预训练 checkpoint，但训练期间始终冻结。
+mean-latent 主线没有独立 vision encoder、temporal latent、失败预测器、candidate
+ensemble、PCA 或 task-stage router。视觉信息只来自冻结 π0 的 action-suffix latent；
+RL 侧从零初始化，不读取任何旧 RL checkpoint 或 replay。这里的“从零训练”不包括
+π0，π0 仍使用预训练 checkpoint，但训练期间始终冻结。
 
 当前 `SolarPanelStatic-v2` 奖励协议包含一次稳定夹取事件奖励 `0.25` 和任务成功奖励 `1.0`。即使命令使用 `--reward-mode sparse`，训练也不是只有 terminal success reward；checkpoint 会绑定该奖励协议并在推理时校验。
 
@@ -156,6 +160,72 @@ python -u scripts/rlt/eval_frozen_latent_residual.py \
 蓝线表示 Base TCP，橙线表示 RLT TCP，两套环境以同 seed lockstep 执行。轨迹默认每 5 步更新一次，避免每帧重建完整 line set；`--real-time` 按环境控制频率节流。关闭窗口会中止本次 rollout，重复运行时需要更换 `--output-dir`。
 
 更完整的实现约束见 [`docs/rlt_post_training.md`](docs/rlt_post_training.md)。
+
+### 第一版 Value-guided full-latent 实验
+
+Value-guided 版本是独立的新协议，不会读取 mean-latent RL checkpoint。它使用
+OpenPI SAFE 分支提供的 4096 维四端点 latent；独立的小型视觉编码器预测
+“失败/剩余 chunk”分布，完整分布特征进入 twin-Q critic，冻结的 `V_base` 只通过
+`gamma * V(next) - V(current)` 势函数差分提供稠密学习信号。它不把失败概率直接当
+介入开关，介入仍由 Q advantage 的进入/保持双阈值决定。
+
+先启动 SAFE latent 服务：
+
+```bash
+cd third_party/openpi
+CUDA_VISIBLE_DEVICES=0 uv run python ../../scripts/pi0/serve.py \
+  --config pi0_maniskill \
+  --checkpoint ../../checkpoints_openpi/pi0_maniskill/ms_pi0_maniskill_TakeSafetyHook1_pd_joint_pos_success_truncated_32batch/29999 \
+  --port 8012 --xla-safe --safe-pre-velocity-latent
+```
+
+采集纯 base rollout（标签只有每个 episode 的最终 success，按 episode 划分训练/验证）：
+
+```bash
+conda run --no-capture-output -n mani_skill python -u scripts/rlt/collect_value_rollouts.py \
+  --server ws://127.0.0.1:8012 \
+  --env-id TakeSafetyHook-v1 --chunk-len 10 --max-episode-steps 500 \
+  --start-seed 61000 --num-episodes 200 \
+  --output outputs/rlt/value_rollouts/TakeSafetyHook-v1_safe_base.h5
+```
+
+训练 Value：
+
+```bash
+conda run --no-capture-output -n mani_skill python -u scripts/rlt/train_value_model.py \
+  --dataset outputs/rlt/value_rollouts/TakeSafetyHook-v1_safe_base.h5 \
+  --output-dir outputs/rlt/value/TakeSafetyHook-v1_safe_visual_recap_value \
+  --epochs 100 --batch-size 64 --wandb-enabled
+```
+
+从零训练 full-latent Advantage-BC（不能附加任何旧 RL checkpoint/replay）：
+
+```bash
+conda run --no-capture-output -n mani_skill python -u scripts/rlt/train_frozen_latent_residual.py \
+  --env-id TakeSafetyHook-v1 --reward-mode sparse --control-mode pd_joint_pos \
+  --sim-backend physx_cpu --render-backend sapien_cuda:0 \
+  --server ws://127.0.0.1:8012 --device cuda:0 --seed 41000 \
+  --chunk-len 10 --max-episode-steps 500 --total-env-steps 200000 \
+  --value-checkpoint outputs/rlt/value/TakeSafetyHook-v1_safe_visual_recap_value/value_best.pt \
+  --value-potential-weight 1.0 --min-q-advantage 0.08 \
+  --intervention-keep-q-advantage 0.02 --max-online-intervention-env-steps 500 \
+  --value-warmup-explore-probability 0.20 --online-explore-probability 0.15 \
+  --updates-per-chunk 5 --wandb-enabled --wandb-new-run \
+  --output-dir outputs/rlt/TakeSafetyHook-v1_safe_value_guided_seed41000_scratch200k
+```
+
+评测同一 checkpoint 时必须同时传 `--value-checkpoint`；评测器会校验 Value
+checkpoint 的 SHA-256、state/action/chunk 维度和 SAFE latent identity：
+
+```bash
+conda run --no-capture-output -n mani_skill python -u scripts/rlt/eval_frozen_latent_residual.py \
+  --checkpoint outputs/rlt/TakeSafetyHook-v1_safe_value_guided_seed41000_scratch200k/frozen_latent_residual.pt \
+  --value-checkpoint outputs/rlt/value/TakeSafetyHook-v1_safe_visual_recap_value/value_best.pt \
+  --server ws://127.0.0.1:8012 --env-id TakeSafetyHook-v1 \
+  --start-seed 51000 --num-seeds 100 --min-q-advantage 0.08 \
+  --intervention-keep-q-advantage 0.02 --max-intervention-env-steps 500 \
+  --output-dir outputs/rlt/TakeSafetyHook-v1_safe_value_guided_seed41000_scratch200k/eval
+```
 
 ## 快速开始（本地 ManiSkill 源码）
 
@@ -302,5 +372,7 @@ python scripts/pi0/run_pi0_remote_multi_seed.py \
 - 一键微调：`scripts/pi0/finetune_maniskill.py`
 - Frozen-latent residual RL：`scripts/rlt/train_frozen_latent_residual.py`
 - Paired RL 评测与实时双轨迹：`scripts/rlt/eval_frozen_latent_residual.py`
+- V_base rollout：`scripts/rlt/collect_value_rollouts.py`
+- 分布式 V_base 训练：`scripts/rlt/train_value_model.py`
 
 > 这些脚本的完整参数与示例见 `docs/openpi_integration.md`。
