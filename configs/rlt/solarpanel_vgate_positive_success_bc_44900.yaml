@@ -1,0 +1,99 @@
+schema: solarpanel_vgate_positive_success_bc_44900_v1
+objective: >-
+  Reproduce the validated seed44900 Positive Success BC pilot from scratch.
+  The base Pi0 and V_base remain frozen; only gated residual actor/scorer
+  parameters are trained. The environment reward is recorded for audit, never
+  used as a dense learning target.
+
+initialization:
+  rl_checkpoint: null
+  replay: null
+  trainer_state: null
+  actor: random_zero_output_head
+  scorer: random_ensemble
+  value_model: frozen_pretrained
+
+task:
+  env_id: SolarPanelStatic-v2
+  obs_mode: rgb
+  reward_mode: sparse
+  control_mode: pd_joint_pos
+  sim_backend: physx_cpu
+  render_backend: sapien_cuda:0
+  max_episode_steps: 500
+  chunk_len: 10
+  state_keys: [agent/qpos, agent/qvel, extra/tcp_pose]
+  image_key: sensor_data/base_camera/rgb
+  wrist_image_key: sensor_data/hand_camera/rgb
+
+value_model:
+  checkpoint: outputs/rlt/value/SolarPanelStatic-v2_safe_visual_recap_value_seed41000/value_best.pt
+  frozen_during_online_training: true
+  uses_environment_reward: false
+  uses_process_reward: false
+
+gate:
+  enter_failure_probability: 0.65
+  immediate_failure_probability: 0.85
+  exit_failure_probability: 0.25
+  enter_confirm_chunks: 2
+  exit_confirm_chunks: 2
+  min_active_chunks: 1
+  ema_alpha: 0.5
+  immediate_max_entropy: 1.5
+  latest_entry_step: 400
+  max_intervention_env_steps: 100
+
+exploration:
+  behavior_policy: persistent_actor
+  mode: macro_knots
+  knots: 6
+  burst_chunks: 5
+  max_bursts_per_episode: 2
+  burst_cooldown_chunks: 5
+  candidate_count: 12
+  scorer_heads: 5
+  noise_start: 0.30
+  noise_end: 0.30
+  candidate_explore_probability_start: 1.0
+  candidate_explore_probability_end: 0.35
+  candidate_explore_anneal_steps: 50000
+  persistent_noise_correlation: 0.95
+  persistent_gripper_noise_scale: 0.5
+  background_probe_episode_probability: 0.80
+  background_probe_max_chunks_per_episode: 5
+  background_probe_max_boundary: 15
+  background_probe_min_value_improvement: -0.20
+  actor_safety_enabled: true
+  actor_safety_min_value_improvement: -0.02
+  actor_safety_cooldown_chunks: 3
+
+learning:
+  scorer_target: one_step_frozen_value_improvement
+  actor_value_objective_weight: 0.0
+  actor_awr_weight: 0.0
+  actor_l2_weight: 0.10
+  actor_smoothness_weight: 0.20
+  actor_success_bc_weight: 10.0
+  actor_success_bc_min_value_improvement: 0.01
+  replay_nonzero_fraction: 0.50
+  replay_nonzero_success_fraction: 0.50
+  updates_per_chunk: 5
+  batch_size: 128
+  buffer_capacity: 50000
+  warmup_transitions: 256
+  actor_warmup_transitions: 1000
+  actor_update_period: 2
+  scorer_return_mode: one_step
+  scorer_return_gamma: 0.99
+  scorer_trace_chunks: 5
+
+training:
+  seed: 44900
+  total_env_steps: 20000
+  save_every_env_steps: 5000
+  wandb_enabled: true
+  wandb_project: maniskill-vgate-advantage-bc
+  wandb_run_name: panel-successbc-positive-seed44900-pilot20k
+
+output_dir: outputs/rlt/SolarPanelStatic-v2_vgate_successbc_positive_seed44900_macro_budget100_pilot20k
